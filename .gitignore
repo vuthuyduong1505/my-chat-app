@@ -1,0 +1,21 @@
+# Bỏ qua thư viện của cả 2 bên
+node_modules/
+client/node_modules/
+server/node_modules/
+
+# Bỏ qua code đã build
+dist/
+client/dist/
+
+# Bỏ qua file chứa mật khẩu
+.env
+server/.env
+
+# Bỏ qua các file cấu hình của công cụ code
+.idea/
+.vscode/
+*.log
+
+# Bỏ qua các file rác của hệ điều hành
+.DS_Store
+Thumbs.db
