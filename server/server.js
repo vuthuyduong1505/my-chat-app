@@ -4,6 +4,7 @@ const cors = require("cors");
 const mongoose = require("mongoose");
 const authRoutes = require("./routes/auth");
 const chatRoutes = require("./routes/chat");
+const usersRoutes = require("./routes/users");
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -17,6 +18,7 @@ app.get("/api/health", (req, res) => {
 
 app.use("/api/auth", authRoutes);
 app.use("/api/chat", chatRoutes);
+app.use("/api/users", usersRoutes);
 
 const startServer = async () => {
   try {

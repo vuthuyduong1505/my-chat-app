@@ -1,14 +1,9 @@
 import { Navigate, Route, Routes } from "react-router-dom";
-import { useAuth } from "./context/AuthContext";
 import LoginPage from "./pages/LoginPage";
 import RegisterPage from "./pages/RegisterPage";
 import HomePage from "./pages/HomePage";
 import ForgotPasswordPage from "./pages/ForgotPasswordPage";
-
-function PrivateRoute({ children }) {
-  const { isAuthenticated } = useAuth();
-  return isAuthenticated ? children : <Navigate to="/login" replace />;
-}
+import ProtectedRoute from "./components/ProtectedRoute";
 
 function App() {
   return (
@@ -20,9 +15,9 @@ function App() {
       <Route
         path="/home"
         element={
-          <PrivateRoute>
+          <ProtectedRoute>
             <HomePage />
-          </PrivateRoute>
+          </ProtectedRoute>
         }
       />
     </Routes>

@@ -25,8 +25,8 @@ function LoginPage() {
 
     try {
       const response = await api.post("/auth/login", formData);
-      const { token } = response.data;
-      login(token);
+      const { token, user } = response.data;
+      login(token, user);
       setSuccess("Login successful. Redirecting...");
       setTimeout(() => navigate("/home"), 600);
     } catch (err) {
