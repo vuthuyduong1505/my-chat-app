@@ -35,17 +35,20 @@ function RegisterPage() {
 
     try {
       await api.post("/auth/register", formData);
-      setSuccess("Register successful. Redirecting to login...");
+      setSuccess("Đăng ký thành công. Đang chuyển đến đăng nhập...");
       setTimeout(() => navigate("/login"), 800);
     } catch (err) {
-      setError(err.response?.data?.message || "Register failed. Please try again.");
+      setError(err.response?.data?.message || "Đăng ký thất bại. Vui lòng thử lại.");
     } finally {
       setLoading(false);
     }
   };
 
+  const inputClass =
+    "w-full rounded-2xl border border-primary/15 bg-light px-4 py-3 text-primary outline-none transition placeholder:text-primary/35 focus:border-secondary focus:ring-2 focus:ring-secondary/35";
+
   return (
-    <AuthCard title="Create Account" /*subtitle="Join Chat App in just a few steps."*/>
+    <AuthCard title="Tạo tài khoản" subtitle="Tham gia D-Chat chỉ trong vài bước.">
       <form onSubmit={handleSubmit} className="mt-6 space-y-4">
         <div className="grid grid-cols-2 gap-3">
           <input
@@ -53,8 +56,8 @@ function RegisterPage() {
             type="text"
             value={formData.firstName}
             onChange={handleChange}
-            placeholder="First name"
-            className="w-full rounded-lg border border-slate-300 px-4 py-3 outline-none focus:border-blue-500"
+            placeholder="Tên"
+            className={inputClass}
             required
           />
           <input
@@ -62,59 +65,61 @@ function RegisterPage() {
             type="text"
             value={formData.lastName}
             onChange={handleChange}
-            placeholder="Last name"
-            className="w-full rounded-lg border border-slate-300 px-4 py-3 outline-none focus:border-blue-500"
+            placeholder="Họ"
+            className={inputClass}
             required
           />
         </div>
-          <input
-            name="email"
-            type="email"
-            value={formData.email}
-            onChange={handleChange}
-            placeholder="Email"
-            className="w-full rounded-lg border border-slate-300 px-4 py-3 outline-none focus:border-blue-500"
-            required
-          />
-          <input
-            name="password"
-            type="password"
-            value={formData.password}
-            onChange={handleChange}
-            placeholder="Password (min 6 characters)"
-            className="w-full rounded-lg border border-slate-300 px-4 py-3 outline-none focus:border-blue-500"
-            minLength={6}
-            required
-          />
-          <input
-            name="confirmPassword"
-            type="password"
-            value={formData.confirmPassword}
-            onChange={handleChange}
-            placeholder="Confirm password"
-            className="w-full rounded-lg border border-slate-300 px-4 py-3 outline-none focus:border-blue-500"
-            minLength={6}
-            required
-          />
+        <input
+          name="email"
+          type="email"
+          value={formData.email}
+          onChange={handleChange}
+          placeholder="Email"
+          className={inputClass}
+          required
+        />
+        <input
+          name="password"
+          type="password"
+          value={formData.password}
+          onChange={handleChange}
+          placeholder="Mật khẩu (tối thiểu 6 ký tự)"
+          className={inputClass}
+          minLength={6}
+          required
+        />
+        <input
+          name="confirmPassword"
+          type="password"
+          value={formData.confirmPassword}
+          onChange={handleChange}
+          placeholder="Xác nhận mật khẩu"
+          className={inputClass}
+          minLength={6}
+          required
+        />
 
-          {error && <p className="rounded-md bg-red-100 px-3 py-2 text-sm text-red-700">{error}</p>}
-          {success && (
-            <p className="rounded-md bg-emerald-100 px-3 py-2 text-sm text-emerald-700">{success}</p>
-          )}
+        {error && <p className="rounded-2xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
+        {success && (
+          <p className="rounded-2xl border border-secondary/30 bg-secondary/10 px-3 py-2 text-sm font-medium text-primary">
+            {success}
+          </p>
+        )}
 
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full rounded-lg bg-blue-600 py-3 font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            {loading ? "Creating account..." : "Register"}
-          </button>
+        <button
+          type="submit"
+          disabled={loading}
+          className="w-full rounded-2xl bg-secondary py-3.5 text-sm font-semibold text-primary shadow-md shadow-secondary/25 transition hover:brightness-95 hover:shadow-lg disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          {loading ? "Đang tạo tài khoản..." : "Đăng ký"}
+        </button>
       </form>
 
-      <p className="mt-5 text-center text-sm text-slate-600">
-        Already have an account?{" "}
-        <Link to="/login" className="font-medium text-blue-600 hover:underline">
-          Login
+      <p className="mt-6 text-center text-sm text-primary/60">
+        Đã có tài khoản?{" "}
+        <Link to="/login" className="font-semibold text-secondary hover:text-primary hover:underline">
+          Đăng nhập
         </Link>
       </p>
     </AuthCard>

@@ -27,60 +27,65 @@ function LoginPage() {
       const response = await api.post("/auth/login", formData);
       const { token, user } = response.data;
       login(token, user);
-      setSuccess("Login successful. Redirecting...");
-      setTimeout(() => navigate("/home"), 600);
+      setSuccess("Đăng nhập thành công. Đang chuyển hướng...");
+      setTimeout(() => navigate("/"), 600);
     } catch (err) {
-      setError(err.response?.data?.message || "Login failed. Please try again.");
+      setError(err.response?.data?.message || "Đăng nhập thất bại. Vui lòng thử lại.");
     } finally {
       setLoading(false);
     }
   };
 
+  const inputClass =
+    "w-full rounded-2xl border border-primary/15 bg-light px-4 py-3 text-primary outline-none transition placeholder:text-primary/35 focus:border-secondary focus:ring-2 focus:ring-secondary/35";
+
   return (
-    <AuthCard title="Welcome Back" subtitle="Login to continue to Chat App.">
+    <AuthCard title="Chào mừng trở lại" subtitle="Đăng nhập để tiếp tục với D-Chat.">
       <form onSubmit={handleSubmit} className="mt-6 space-y-4">
-          <input
-            name="email"
-            type="email"
-            value={formData.email}
-            onChange={handleChange}
-            placeholder="Email"
-            className="w-full rounded-lg border border-slate-300 px-4 py-3 outline-none focus:border-blue-500"
-            required
-          />
-          <input
-            name="password"
-            type="password"
-            value={formData.password}
-            onChange={handleChange}
-            placeholder="Password"
-            className="w-full rounded-lg border border-slate-300 px-4 py-3 outline-none focus:border-blue-500"
-            required
-          />
-          <div className="-mt-2 text-right">
-            <Link to="/forgot-password" className="text-xs font-medium text-blue-600 hover:underline">
-              Forgot Password?
-            </Link>
-          </div>
+        <input
+          name="email"
+          type="email"
+          value={formData.email}
+          onChange={handleChange}
+          placeholder="Email"
+          className={inputClass}
+          required
+        />
+        <input
+          name="password"
+          type="password"
+          value={formData.password}
+          onChange={handleChange}
+          placeholder="Mật khẩu"
+          className={inputClass}
+          required
+        />
+        <div className="-mt-1 text-right">
+          <Link to="/forgot-password" className="text-xs font-semibold text-secondary hover:text-primary hover:underline">
+            Quên mật khẩu?
+          </Link>
+        </div>
 
-          {error && <p className="rounded-md bg-red-100 px-3 py-2 text-sm text-red-700">{error}</p>}
-          {success && (
-            <p className="rounded-md bg-emerald-100 px-3 py-2 text-sm text-emerald-700">{success}</p>
-          )}
+        {error && <p className="rounded-2xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
+        {success && (
+          <p className="rounded-2xl border border-secondary/30 bg-secondary/10 px-3 py-2 text-sm font-medium text-primary">
+            {success}
+          </p>
+        )}
 
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full rounded-lg bg-blue-600 py-3 font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            {loading ? "Logging in..." : "Login"}
-          </button>
+        <button
+          type="submit"
+          disabled={loading}
+          className="w-full rounded-2xl bg-primary py-3.5 text-sm font-semibold text-light shadow-md shadow-primary/25 transition hover:bg-primary/90 hover:shadow-lg disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          {loading ? "Đang đăng nhập..." : "Đăng nhập"}
+        </button>
       </form>
 
-      <p className="mt-5 text-center text-sm text-slate-600">
-        Don&apos;t have an account?{" "}
-        <Link to="/register" className="font-medium text-blue-600 hover:underline">
-          Register
+      <p className="mt-6 text-center text-sm text-primary/60">
+        Chưa có tài khoản?{" "}
+        <Link to="/register" className="font-semibold text-secondary hover:text-primary hover:underline">
+          Đăng ký
         </Link>
       </p>
     </AuthCard>

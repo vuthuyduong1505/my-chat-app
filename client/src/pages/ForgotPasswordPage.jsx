@@ -29,39 +29,42 @@ function ForgotPasswordPage() {
     }
   };
 
+  const inputClass =
+    "w-full rounded-2xl border border-primary/15 bg-light px-4 py-3 text-primary outline-none transition placeholder:text-primary/35 focus:border-secondary focus:ring-2 focus:ring-secondary/35";
+
   return (
     <>
       {toastMessage && (
-        <div className="fixed right-4 top-4 z-50 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white shadow-lg">
+        <div className="fixed right-4 top-4 z-50 rounded-2xl bg-primary px-4 py-3 text-sm font-semibold text-light shadow-lg shadow-primary/30">
           {toastMessage}
         </div>
       )}
-      <AuthCard title="Forgot Password" subtitle="Enter your email to receive a recovery code.">
+      <AuthCard title="Quên mật khẩu" subtitle="Nhập email để nhận mã khôi phục.">
         <form onSubmit={handleSubmit} className="mt-6 space-y-4">
           <input
             type="email"
             value={email}
             onChange={(event) => setEmail(event.target.value)}
             placeholder="Email"
-            className="w-full rounded-lg border border-slate-300 px-4 py-3 outline-none focus:border-blue-500"
+            className={inputClass}
             required
           />
 
-          {error && <p className="rounded-md bg-red-100 px-3 py-2 text-sm text-red-700">{error}</p>}
+          {error && <p className="rounded-2xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
 
           <button
             type="submit"
             disabled={loading}
-            className="w-full rounded-lg bg-blue-600 py-3 font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+            className="w-full rounded-2xl bg-primary py-3.5 text-sm font-semibold text-light shadow-md shadow-primary/25 transition hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {loading ? "Sending..." : "Send Recovery Code"}
+            {loading ? "Đang gửi..." : "Gửi mã khôi phục"}
           </button>
         </form>
 
-        <p className="mt-5 text-center text-sm text-slate-600">
-          Back to{" "}
-          <Link to="/login" className="font-medium text-blue-600 hover:underline">
-            Login
+        <p className="mt-6 text-center text-sm text-primary/60">
+          Quay lại{" "}
+          <Link to="/login" className="font-semibold text-secondary hover:text-primary hover:underline">
+            Đăng nhập
           </Link>
         </p>
       </AuthCard>
