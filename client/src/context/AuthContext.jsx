@@ -24,14 +24,25 @@ export function AuthProvider({ children }) {
     setToken("");
     setUser(null);
   };
-//Tạo value cho Auth Context bao gồm token, user, isAuthenticated, login và logout
+
+  const updateUser = (nextUser) => {
+    setUser(nextUser);
+    if (nextUser) {
+      localStorage.setItem("auth_user", JSON.stringify(nextUser));
+    } else {
+      localStorage.removeItem("auth_user");
+    }
+  };
+
+  //Tạo value cho Auth Context bao gồm token, user, isAuthenticated, login và logout
   const value = useMemo(
     () => ({
       token,
       user,
       isAuthenticated: Boolean(token),
       login,
-      logout
+      logout,
+      updateUser
     }),
     [token, user]
   );

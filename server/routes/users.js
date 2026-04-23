@@ -1,5 +1,6 @@
 const express = require("express");
 const mongoose = require("mongoose");
+const bcrypt = require("bcryptjs");
 const User = require("../models/User");
 const FriendRequest = require("../models/FriendRequest");
 const authMiddleware = require("../middleware/authMiddleware");
@@ -229,6 +230,74 @@ router.get("/friends", authMiddleware, async (req, res) => {
     return res.status(200).json({ friends: user.friends || [] });
   } catch (error) {
     return res.status(500).json({ message: "Lỗi máy chủ khi tải danh sách bạn bè." });
+  }
+});
+
+router.put("/profile", authMiddleware, async (req, res) => {
+  try {
+    const { firstName, lastName, avatar } = req.body;
+
+    if (!firstName?.trim() || !lastName?.trim()) {
+      return res.status(400).json({ message: "Họ và tên không được để trống." });
+    }
+
+    const updatedUser = await User.findByIdAndUpdate(
+      req.user.id,
+      {
+        firstName: firstName.trim(),
+        lastName: lastName.trim(),
+        avatar: typeof avatar === "string" ? avatar.trim() : ""
+      },
+      { new: true, runValidators: true }
+    ).select("firstName lastName email avatar");
+
+    if (!updatedUser) {
+      return res.status(404).json({ message: "Không tìm thấy người dùng." });
+    }
+
+    return res.status(200).json({
+      message: "Cập nhật hồ sơ thành công.",
+      user: {
+        id: updatedUser._id,
+        firstName: updatedUser.firstName,
+        lastName: updatedUser.lastName,
+        email: updatedUser.email,
+        avatar: updatedUser.avatar
+      }
+    });
+  } catch (error) {
+    return res.status(500).json({ message: "Lỗi máy chủ khi cập nhật hồ sơ." });
+  }
+});
+
+router.put("/change-password", authMiddleware, async (req, res) => {
+  try {
+    const { oldPassword, newPassword } = req.body;
+
+    if (!oldPassword || !newPassword) {
+      return res.status(400).json({ message: "Vui lòng nhập đầy đủ mật khẩu cũ và mật khẩu mới." });
+    }
+    if (newPassword.length < 6) {
+      return res.status(400).json({ message: "Mật khẩu mới phải có ít nhất 6 ký tự." });
+    }
+
+    const user = await User.findById(req.user.id);
+    if (!user) {
+      return res.status(404).json({ message: "Không tìm thấy người dùng." });
+    }
+
+    const isOldPasswordValid = await bcrypt.compare(oldPassword, user.password);
+    if (!isOldPasswordValid) {
+      return res.status(400).json({ message: "Mật khẩu cũ không chính xác." });
+    }
+
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+    user.password = hashedPassword;
+    await user.save();
+
+    return res.status(200).json({ message: "Đổi mật khẩu thành công." });
+  } catch (error) {
+    return res.status(500).json({ message: "Lỗi máy chủ khi đổi mật khẩu." });
   }
 });
 
