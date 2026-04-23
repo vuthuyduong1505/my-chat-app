@@ -5,11 +5,11 @@ const router = express.Router();
 router.post("/", (req, res) => {
   const { message } = req.body;
   if (!message) {
-    return res.status(400).json({ message: "Message is required." });
+    return res.status(400).json({ message: "Vui lòng nhập nội dung tin nhắn." });
   }
 
   return res.status(200).json({
-    reply: `Echo: ${message}`
+    reply: `Phản hồi: ${message}`
   });
 });
 

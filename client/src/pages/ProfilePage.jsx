@@ -7,7 +7,7 @@ function ProfilePage() {
         <UserCircle size={32} />
       </div>
       <div>
-        <h1 className="text-2xl font-bold text-primary">Profile</h1>
+        <h1 className="text-2xl font-bold text-primary">Hồ sơ</h1>
         
       </div>
     </div>

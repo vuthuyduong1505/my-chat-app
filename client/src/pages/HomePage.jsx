@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { MessageCircle, Search, Send, User } from "lucide-react";
+import { Loader2, MessageCircle, Search, Send } from "lucide-react";
 import api from "../api";
 import { useAuth } from "../context/AuthContext";
 
@@ -22,21 +22,16 @@ function HomePage() {
   }, [user]);
 
   const currentUserName = useMemo(() => {
-    if (!user) return "User";
-    return `${user.firstName || ""} ${user.lastName || ""}`.trim() || "User";
+    if (!user) return "Người dùng";
+    return `${user.firstName || ""} ${user.lastName || ""}`.trim() || "Người dùng";
   }, [user]);
 
   useEffect(() => {
     const fetchUsers = async () => {
       setLoadingFriends(true);
       try {
-        const response = await api.get("/users");
-        const users = response.data?.users || [];
-        const filteredUsers = users.filter((friend) => {
-          const friendId = friend?._id || friend?.id || "";
-          return String(friendId) !== String(currentUserId);
-        });
-        setFriends(filteredUsers);
+        const response = await api.get("/users/friends");
+        setFriends(response.data?.friends || []);
       } catch {
         setFriends([]);
       } finally {
@@ -75,7 +70,9 @@ function HomePage() {
 
         <div className="mt-3 flex-1 space-y-1.5 overflow-y-auto pr-0.5">
           {loadingFriends ? (
-            <p className="rounded-2xl border border-primary/5 bg-light px-3 py-3 text-sm text-primary/50">Đang tải danh sách...</p>
+            <div className="flex items-center justify-center rounded-2xl border border-primary/5 bg-light px-3 py-6 text-primary/50">
+              <Loader2 size={18} className="animate-spin" />
+            </div>
           ) : friends.length === 0 ? (
             <p className="rounded-2xl border border-primary/5 bg-light px-3 py-3 text-sm text-primary/50">Chưa có bạn bè nào.</p>
           ) : (
@@ -90,7 +87,7 @@ function HomePage() {
                 </div>
                 <div className="min-w-0">
                   <p className="truncate text-sm font-medium text-primary">
-                    {`${friend.firstName || ""} ${friend.lastName || ""}`.trim() || "Unknown"}
+                    {`${friend.firstName || ""} ${friend.lastName || ""}`.trim() || "Không xác định"}
                   </p>
                   <p className="truncate text-xs text-primary/50">{friend.email}</p>
                 </div>

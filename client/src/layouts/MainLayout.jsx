@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import {
   ChevronLeft,
@@ -10,28 +10,54 @@ import {
   Users
 } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
+import api from "../api";
 
 const navItems = [
-  { to: "/", end: true, label: "Chat", icon: MessageSquare },
-  { to: "/friends", end: false, label: "Friends", icon: Users },
-  { to: "/discover", end: false, label: "Discover", icon: Search },
-  { to: "/profile", end: false, label: "Profile", icon: UserCircle }
+  { to: "/", end: true, label: "Trò chuyện", icon: MessageSquare },
+  { to: "/friends", end: false, label: "Bạn bè", icon: Users },
+  { to: "/discover", end: false, label: "Khám phá", icon: Search },
+  { to: "/profile", end: false, label: "Hồ sơ", icon: UserCircle }
 ];
 
 function MainLayout() {
   const [collapsed, setCollapsed] = useState(false);
+  const [pendingCount, setPendingCount] = useState(0);
   const { logout, user } = useAuth();
   const navigate = useNavigate();
 
   const displayName =
     user && `${user.firstName || ""} ${user.lastName || ""}`.trim()
       ? `${user.firstName || ""} ${user.lastName || ""}`.trim()
-      : "User";
+      : "Người dùng";
 
   const handleLogout = () => {
     logout();
     navigate("/login", { replace: true });
   };
+
+  useEffect(() => {
+    const fetchPendingCount = async () => {
+      try {
+        const response = await api.get("/users/friend-requests/pending");
+        setPendingCount((response.data?.requests || []).length);
+      } catch {
+        setPendingCount(0);
+      }
+    };
+
+    fetchPendingCount();
+
+    const onSocialUpdated = () => fetchPendingCount();
+    const onPendingChanged = (event) => setPendingCount(Number(event?.detail) || 0);
+
+    window.addEventListener("social-updated", onSocialUpdated);
+    window.addEventListener("pending-requests-changed", onPendingChanged);
+
+    return () => {
+      window.removeEventListener("social-updated", onSocialUpdated);
+      window.removeEventListener("pending-requests-changed", onPendingChanged);
+    };
+  }, []);
 
   return (
     <div className="flex h-screen min-h-0 bg-accent">
@@ -88,7 +114,12 @@ function MainLayout() {
                     <Icon size={20} strokeWidth={isActive ? 2.25 : 2} />
                   </span>
                   {!collapsed && <span>{label}</span>}
-                  {!collapsed && isActive && (
+                  {!collapsed && label === "Bạn bè" && pendingCount > 0 && (
+                    <span className="ml-auto inline-flex min-h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1 text-[11px] font-semibold leading-none text-white shadow-[0_0_10px_rgba(239,68,68,0.9)]">
+                      {pendingCount > 99 ? "99+" : pendingCount}
+                    </span>
+                  )}
+                  {!collapsed && isActive && label !== "Bạn bè" && (
                     <span className="ml-auto h-2 w-2 shrink-0 rounded-full bg-secondary shadow-[0_0_12px_rgba(0,191,165,0.7)]" />
                   )}
                 </>
@@ -101,7 +132,7 @@ function MainLayout() {
           <button
             type="button"
             onClick={handleLogout}
-            title="Logout"
+            title="Đăng xuất"
             className={`flex w-full items-center gap-3 rounded-2xl py-2.5 text-sm font-medium text-white/90 transition hover:bg-red-500/20 hover:text-red-100 ${
               collapsed ? "justify-center px-0" : "px-3"
             }`}
@@ -109,7 +140,7 @@ function MainLayout() {
             <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white/5">
               <LogOut size={20} />
             </span>
-            {!collapsed && <span>Logout</span>}
+            {!collapsed && <span>Đăng xuất</span>}
           </button>
         </div>
       </aside>

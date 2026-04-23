@@ -1,5 +1,5 @@
 import { createContext, useContext, useMemo, useState } from "react";
-
+//Tạo context cho Auth Context để quản lý trạng thái đăng nhập và thông tin người dùng
 const AuthContext = createContext(null);
 
 export function AuthProvider({ children }) {
@@ -24,7 +24,7 @@ export function AuthProvider({ children }) {
     setToken("");
     setUser(null);
   };
-
+//Tạo value cho Auth Context bao gồm token, user, isAuthenticated, login và logout
   const value = useMemo(
     () => ({
       token,

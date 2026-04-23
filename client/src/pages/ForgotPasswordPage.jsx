@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
+import toast from "react-hot-toast";
 import api from "../api";
 import AuthCard from "../components/AuthCard";
 
@@ -7,21 +8,16 @@ function ForgotPasswordPage() {
   const [email, setEmail] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [toastMessage, setToastMessage] = useState("");
 
   const handleSubmit = async (event) => {
     event.preventDefault();
     setError("");
-    setToastMessage("");
     setLoading(true);
 
     try {
       const response = await api.post("/auth/forgot-password", { email });
-      setToastMessage(response.data?.message || "Mã khôi phục đã được gửi");
+      toast.success(response.data?.message || "Mã khôi phục đã được gửi");
       setEmail("");
-      setTimeout(() => {
-        setToastMessage("");
-      }, 2200);
     } catch (err) {
       setError(err.response?.data?.message || "Không thể gửi mã khôi phục. Vui lòng thử lại.");
     } finally {
@@ -34,11 +30,6 @@ function ForgotPasswordPage() {
 
   return (
     <>
-      {toastMessage && (
-        <div className="fixed right-4 top-4 z-50 rounded-2xl bg-primary px-4 py-3 text-sm font-semibold text-light shadow-lg shadow-primary/30">
-          {toastMessage}
-        </div>
-      )}
       <AuthCard title="Quên mật khẩu" subtitle="Nhập email để nhận mã khôi phục.">
         <form onSubmit={handleSubmit} className="mt-6 space-y-4">
           <input
