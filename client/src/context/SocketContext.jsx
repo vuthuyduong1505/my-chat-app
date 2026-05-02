@@ -8,6 +8,7 @@ export function SocketProvider({ children }) {
   const { token, isAuthenticated } = useAuth();
   const [socket, setSocket] = useState(null);
   const [connected, setConnected] = useState(false);
+  const [onlineUsers, setOnlineUsers] = useState(() => new Set());
 
   useEffect(() => {
     if (!isAuthenticated || !token) {
@@ -16,6 +17,7 @@ export function SocketProvider({ children }) {
         return null;
       });
       setConnected(false);
+      setOnlineUsers(new Set());
       return undefined;
     }
 
@@ -28,7 +30,10 @@ export function SocketProvider({ children }) {
     });
 
     const onConnect = () => setConnected(true);
-    const onDisconnect = () => setConnected(false);
+    const onDisconnect = () => {
+      setConnected(false);
+      setOnlineUsers(new Set());
+    };
 
     s.on("connect", onConnect);
     s.on("disconnect", onDisconnect);
@@ -40,10 +45,50 @@ export function SocketProvider({ children }) {
       s.off("disconnect", onDisconnect);
       s.disconnect();
       setConnected(false);
+      setOnlineUsers(new Set());
     };
   }, [isAuthenticated, token]);
 
-  const value = useMemo(() => ({ socket, connected }), [socket, connected]);
+  useEffect(() => {
+    if (!socket) {
+      setOnlineUsers(new Set());
+      return undefined;
+    }
+
+    const onOnlineUsers = (ids) => {
+      setOnlineUsers(new Set((ids || []).map(String)));
+    };
+
+    const onUserOnline = ({ userId: uid }) => {
+      if (!uid) return;
+      setOnlineUsers((prev) => {
+        const next = new Set(prev);
+        next.add(String(uid));
+        return next;
+      });
+    };
+
+    const onUserOffline = ({ userId: uid }) => {
+      if (!uid) return;
+      setOnlineUsers((prev) => {
+        const next = new Set(prev);
+        next.delete(String(uid));
+        return next;
+      });
+    };
+
+    socket.on("online_users", onOnlineUsers);
+    socket.on("user_online", onUserOnline);
+    socket.on("user_offline", onUserOffline);
+
+    return () => {
+      socket.off("online_users", onOnlineUsers);
+      socket.off("user_online", onUserOnline);
+      socket.off("user_offline", onUserOffline);
+    };
+  }, [socket]);
+
+  const value = useMemo(() => ({ socket, connected, onlineUsers }), [socket, connected, onlineUsers]);
 
   return <SocketContext.Provider value={value}>{children}</SocketContext.Provider>;
 }

@@ -28,7 +28,9 @@ function createSocketRegistry() {
     if (set.size === 0) userIdToSockets.delete(key);
   };
 
-  return { register, unregister, userIdToSockets };
+  const getOnlineUserIds = () => Array.from(userIdToSockets.keys());
+
+  return { register, unregister, userIdToSockets, getOnlineUserIds };
 }
 
 function attachSocketIO(httpServer) {
@@ -42,7 +44,7 @@ function attachSocketIO(httpServer) {
     }
   });
 
-  const { register, unregister } = createSocketRegistry();
+  const { register, unregister, getOnlineUserIds } = createSocketRegistry();
 
   io.use((socket, next) => {
     const token = socket.handshake.auth?.token;
@@ -61,6 +63,9 @@ function attachSocketIO(httpServer) {
   io.on("connection", (socket) => {
     const userId = socket.userId;
     register(userId, socket.id);
+
+    socket.emit("online_users", getOnlineUserIds());
+    socket.broadcast.emit("user_online", { userId });
 
     socket.on("join_chat", async ({ friendId }) => {
       try {
@@ -117,6 +122,9 @@ function attachSocketIO(httpServer) {
 
     socket.on("disconnect", () => {
       unregister(userId, socket.id);
+      if (!getOnlineUserIds().includes(String(userId))) {
+        io.emit("user_offline", { userId });
+      }
     });
   });
 

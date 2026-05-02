@@ -3,9 +3,11 @@ import { Loader2, Search } from "lucide-react";
 import api from "../api";
 import ChatWindow from "../components/ChatWindow";
 import { useAuth } from "../context/AuthContext";
+import { useSocket } from "../context/SocketContext";
 
 function HomePage() {
   const { user } = useAuth();
+  const { onlineUsers } = useSocket();
   const [friends, setFriends] = useState([]);
   const [loadingFriends, setLoadingFriends] = useState(true);
   const [selectedFriend, setSelectedFriend] = useState(null);
@@ -80,10 +82,12 @@ function HomePage() {
             <p className="rounded-2xl border border-primary/5 bg-light px-3 py-3 text-sm text-primary/50">Chưa có bạn bè nào.</p>
           ) : (
             friends.map((friend) => {
-              const selected = selectedFriend && friendKey(selectedFriend) === friendKey(friend);
+              const id = friendKey(friend);
+              const selected = selectedFriend && friendKey(selectedFriend) === id;
+              const isOnline = onlineUsers.has(String(id));
               return (
                 <button
-                  key={friendKey(friend)}
+                  key={id}
                   type="button"
                   onClick={() => setSelectedFriend(friend)}
                   className={`flex w-full items-center gap-3 rounded-2xl border px-2 py-2 text-left transition-all duration-200 ${
@@ -92,8 +96,17 @@ function HomePage() {
                       : "border-transparent hover:border-secondary/25 hover:bg-secondary/10 hover:shadow-sm"
                   }`}
                 >
-                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary/10 text-sm font-semibold text-primary ring-2 ring-transparent">
-                    {getAvatarLetter(friend)}
+                  <div className="relative shrink-0">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10 text-sm font-semibold text-primary ring-2 ring-transparent">
+                      {getAvatarLetter(friend)}
+                    </div>
+                    {isOnline ? (
+                      <span
+                        className="absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full bg-green-500 ring-2 ring-light"
+                        title="Đang online"
+                        aria-hidden
+                      />
+                    ) : null}
                   </div>
                   <div className="min-w-0">
                     <p className="truncate text-sm font-medium text-primary">

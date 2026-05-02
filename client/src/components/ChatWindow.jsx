@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Loader2, MessageCircle, Send } from "lucide-react";
 import api from "../api";
+import { useAuth } from "../context/AuthContext";
 import { useSocket } from "../context/SocketContext";
 
 function formatMessageTime(iso) {
@@ -13,12 +14,26 @@ function formatMessageTime(iso) {
   }
 }
 
+function MessageRowAvatar({ src, initial, onImageError }) {
+  return (
+    <div className="h-8 w-8 flex-shrink-0 overflow-hidden rounded-full bg-primary/10 ring-1 ring-primary/15">
+      {src ? (
+        <img src={src} alt="" className="h-full w-full object-cover" onError={onImageError} />
+      ) : (
+        <div className="flex h-full w-full items-center justify-center text-[11px] font-bold text-primary">{initial}</div>
+      )}
+    </div>
+  );
+}
+
 function ChatWindow({ friend, currentUserId }) {
-  const { socket, connected } = useSocket();
+  const { user } = useAuth();
+  const { socket, connected, onlineUsers } = useSocket();
   const [messages, setMessages] = useState([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
   const [draft, setDraft] = useState("");
-  const [avatarErr, setAvatarErr] = useState(false);
+  const [friendAvatarErr, setFriendAvatarErr] = useState(false);
+  const [myAvatarErr, setMyAvatarErr] = useState(false);
   const bottomRef = useRef(null);
 
   const friendId = useMemo(() => {
@@ -32,18 +47,40 @@ function ChatWindow({ friend, currentUserId }) {
     return n || friend.email || "Bạn bè";
   }, [friend]);
 
-  useEffect(() => {
-    setAvatarErr(false);
-  }, [friend?.avatar, friendId]);
-
   const friendInitial = useMemo(() => {
     const base = friend?.firstName || friend?.lastName || friend?.email || "?";
     return base[0]?.toUpperCase() || "?";
   }, [friend]);
 
+  const myInitial = useMemo(() => {
+    const base =
+      `${user?.firstName || ""} ${user?.lastName || ""}`.trim() || user?.email || currentUserId || "?";
+    return base[0]?.toUpperCase() || "?";
+  }, [user, currentUserId]);
+
+  const myAvatarUrl = user?.avatar?.trim() || "";
+
+  useEffect(() => {
+    setFriendAvatarErr(false);
+  }, [friend?.avatar, friendId]);
+
+  useEffect(() => {
+    setMyAvatarErr(false);
+  }, [myAvatarUrl]);
+
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, loadingHistory]);
+  }, [messages]);
+
+  useEffect(() => {
+    if (!friendId || loadingHistory) return undefined;
+    const id = requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        bottomRef.current?.scrollIntoView({ behavior: "auto" });
+      });
+    });
+    return () => cancelAnimationFrame(id);
+  }, [friendId, loadingHistory]);
 
   useEffect(() => {
     if (!friendId) {
@@ -136,6 +173,8 @@ function ChatWindow({ friend, currentUserId }) {
     setDraft("");
   };
 
+  const friendIsOnline = Boolean(friendId && onlineUsers.has(String(friendId)));
+
   if (!friend || !friendId) {
     return (
       <div className="relative flex flex-1 flex-col overflow-hidden rounded-2xl border border-primary/8 bg-gradient-to-br from-accent via-light to-accent/90 p-6 shadow-inner">
@@ -158,12 +197,12 @@ function ChatWindow({ friend, currentUserId }) {
 
       <header className="relative z-10 flex shrink-0 items-center gap-3 border-b border-primary/10 bg-light/95 px-4 py-3 backdrop-blur-sm md:px-5">
         <div className="relative h-11 w-11 shrink-0 overflow-hidden rounded-full bg-primary/10 ring-2 ring-secondary/25">
-          {friend?.avatar && !avatarErr ? (
+          {friend?.avatar && !friendAvatarErr ? (
             <img
               src={friend.avatar}
               alt=""
               className="h-full w-full object-cover"
-              onError={() => setAvatarErr(true)}
+              onError={() => setFriendAvatarErr(true)}
             />
           ) : (
             <div className="flex h-full w-full items-center justify-center text-sm font-bold text-primary">
@@ -174,7 +213,11 @@ function ChatWindow({ friend, currentUserId }) {
         <div className="min-w-0 flex-1">
           <p className="truncate font-semibold text-primary">{friendName}</p>
           <p className="truncate text-xs text-primary/50">
-            
+            {!connected
+              ? "Đang kết nối máy chủ…"
+              : friendIsOnline
+                ? "Đang hoạt động"
+                : "Offline"}
           </p>
         </div>
       </header>
@@ -186,25 +229,58 @@ function ChatWindow({ friend, currentUserId }) {
               <Loader2 className="animate-spin" size={22} />
             </div>
           ) : messages.length === 0 ? (
-            <p className="py-8 text-center text-sm text-primary/45">Chưa có tin nhắn nào. Hãy bắt đầu!</p>
+            <p className="py-8 text-center text-sm text-primary/45">Chưa có tin nhắn nào</p>
           ) : (
             messages.map((m) => {
               const isMine = String(m.sender) === String(currentUserId);
+              const time = formatMessageTime(m.createdAt);
+
+              if (isMine) {
+                return (
+                  <div key={String(m._id)} className="flex w-full justify-end">
+                    <div className="flex w-full max-w-[min(92%,480px)] flex-col items-end">
+                      <div className="flex w-full min-w-0 flex-row-reverse items-end gap-2">
+                        <MessageRowAvatar
+                          src={myAvatarUrl && !myAvatarErr ? myAvatarUrl : null}
+                          initial={myInitial}
+                          onImageError={() => setMyAvatarErr(true)}
+                        />
+                        <div
+                          className={`min-w-0 max-w-[80%] rounded-3xl rounded-br-2xl bg-primary px-3.5 py-2.5 text-sm text-light shadow-sm ${
+                            m.pending ? "opacity-90" : ""
+                          }`}
+                        >
+                          <p className="break-all whitespace-pre-wrap [overflow-wrap:anywhere] leading-snug">
+                            {m.content}
+                          </p>
+                        </div>
+                      </div>
+                      <span className="mr-10 text-[10px] leading-none tabular-nums text-gray-400">{time}</span>
+                    </div>
+                  </div>
+                );
+              }
+
               return (
-                <div key={String(m._id)} className={`flex w-full ${isMine ? "justify-end" : "justify-start"}`}>
-                  <div
-                    className={`max-w-[min(85%,420px)] rounded-2xl px-3.5 py-2.5 text-sm shadow-sm ${
-                      isMine
-                        ? "rounded-br-md bg-primary text-light"
-                        : "rounded-bl-md bg-gray-100 text-primary"
-                    } ${m.pending ? "opacity-90" : ""}`}
-                  >
-                    <p className="whitespace-pre-wrap break-words leading-relaxed">{m.content}</p>
-                    <p
-                      className={`mt-1 text-[10px] ${isMine ? "text-light/70" : "text-primary/45"}`}
-                    >
-                      {formatMessageTime(m.createdAt)}
-                    </p>
+                <div key={String(m._id)} className="flex w-full justify-start">
+                  <div className="flex w-full max-w-[min(92%,480px)] flex-col items-start">
+                    <div className="flex w-full min-w-0 flex-row items-end gap-2">
+                      <MessageRowAvatar
+                        src={friend?.avatar && !friendAvatarErr ? friend.avatar : null}
+                        initial={friendInitial}
+                        onImageError={() => setFriendAvatarErr(true)}
+                      />
+                      <div
+                        className={`min-w-0 max-w-[80%] rounded-3xl rounded-bl-2xl bg-gray-100 px-3.5 py-2.5 text-sm text-primary shadow-sm ${
+                          m.pending ? "opacity-90" : ""
+                        }`}
+                      >
+                        <p className="break-all whitespace-pre-wrap [overflow-wrap:anywhere] leading-snug">
+                          {m.content}
+                        </p>
+                      </div>
+                    </div>
+                    <span className="ml-10 text-[10px] leading-none tabular-nums text-gray-400">{time}</span>
                   </div>
                 </div>
               );
@@ -233,7 +309,7 @@ function ChatWindow({ friend, currentUserId }) {
               type="button"
               onClick={send}
               disabled={!connected || !draft.trim()}
-              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-secondary text-primary shadow-md shadow-secondary/25 transition hover:brightness-95 disabled:opacity-40"
+              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-primary text-light shadow-md shadow-primary/25 transition hover:bg-primary/90 disabled:opacity-40"
               aria-label="Gửi"
             >
               <Send size={18} />
