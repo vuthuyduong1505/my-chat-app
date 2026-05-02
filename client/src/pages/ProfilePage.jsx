@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { Camera, Loader2, Lock, Mail, User } from "lucide-react";
 import toast from "react-hot-toast";
 import api from "../api";
+import UserAvatar from "../components/UserAvatar";
 import { useAuth } from "../context/AuthContext";
 
 function ProfilePage() {
@@ -10,7 +11,6 @@ function ProfilePage() {
   const [lastName, setLastName] = useState("");
   const [email, setEmail] = useState("");
   const [avatarUrl, setAvatarUrl] = useState("");
-  const [avatarLoadError, setAvatarLoadError] = useState(false);
   const [oldPassword, setOldPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmNewPassword, setConfirmNewPassword] = useState("");
@@ -20,15 +20,8 @@ function ProfilePage() {
     setFirstName(user?.firstName || "");
     setLastName(user?.lastName || "");
     setEmail(user?.email || "");
-    setAvatarUrl(user?.avatar || "");
-    setAvatarLoadError(false);
+    setAvatarUrl(user?.avatar ?? "");
   }, [user]);
-
-  const fallbackInitial = useMemo(() => {
-    const fullName = `${firstName} ${lastName}`.trim();
-    const base = fullName || email || "U";
-    return base.charAt(0).toUpperCase();
-  }, [firstName, lastName, email]);
 
   const handleSave = async (event) => {
     event.preventDefault();
@@ -91,18 +84,15 @@ function ProfilePage() {
         <section className="grid gap-4 xl:grid-cols-[300px_1fr]">
           <div className="rounded-3xl border border-primary/10 bg-light p-4 shadow-soft sm:p-5">
             <p className="mb-4 text-sm font-semibold text-primary">Ảnh đại diện</p>
-            <div className="mx-auto mb-4 flex h-36 w-36 items-center justify-center overflow-hidden rounded-full border-4 border-secondary/40 bg-primary/10 text-primary">
-              {avatarUrl && !avatarLoadError ? (
-                <img
-                  src={avatarUrl}
-                  alt="Ảnh đại diện"
-                  className="h-full w-full object-cover"
-                  onError={() => setAvatarLoadError(true)}
-                />
-              ) : (
-                <span className="text-4xl font-bold">{fallbackInitial}</span>
-              )}
-            </div>
+            <UserAvatar
+              avatar={avatarUrl}
+              firstName={firstName}
+              lastName={lastName}
+              email={email}
+              size="profile"
+              alt="Ảnh đại diện"
+              className="mx-auto mb-4 border-4 border-secondary/40 !ring-0"
+            />
             <label className="mb-2 inline-flex items-center gap-2 text-sm font-medium text-primary/75">
               <Camera size={16} className="text-secondary" />
               Link ảnh đại diện
@@ -110,10 +100,7 @@ function ProfilePage() {
             <input
               type="url"
               value={avatarUrl}
-              onChange={(event) => {
-                setAvatarUrl(event.target.value);
-                setAvatarLoadError(false);
-              }}
+              onChange={(event) => setAvatarUrl(event.target.value)}
               placeholder="https://example.com/avatar.jpg"
               className="w-full rounded-2xl border border-primary/15 bg-light px-4 py-3 text-sm text-primary outline-none transition placeholder:text-primary/35 focus:border-secondary focus:ring-2 focus:ring-secondary/35"
             />

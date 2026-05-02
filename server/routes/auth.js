@@ -2,6 +2,7 @@ const express = require("express");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const User = require("../models/User");
+const authMiddleware = require("../middleware/authMiddleware");
 
 const router = express.Router();
 //Tạo token JWT cho người dùng sau khi đăng nhập
@@ -41,7 +42,8 @@ router.post("/register", async (req, res) => {
         id: user._id,
         firstName: user.firstName,
         lastName: user.lastName,
-        email: user.email
+        email: user.email,
+        avatar: user.avatar || ""
       }
     });
   } catch (error) {
@@ -74,7 +76,8 @@ router.post("/login", async (req, res) => {
         id: user._id,
         firstName: user.firstName,
         lastName: user.lastName,
-        email: user.email
+        email: user.email,
+        avatar: user.avatar || ""
       }
     });
   } catch (error) {
@@ -84,6 +87,26 @@ router.post("/login", async (req, res) => {
 
 router.post("/forgot-password", (req, res) => {
   return res.status(200).json({ message: "Mã khôi phục đã được gửi" });
+});
+
+router.get("/me", authMiddleware, async (req, res) => {
+  try {
+    const u = await User.findById(req.user.id).select("firstName lastName email avatar").lean();
+    if (!u) {
+      return res.status(404).json({ message: "Không tìm thấy người dùng." });
+    }
+    return res.status(200).json({
+      user: {
+        id: u._id,
+        firstName: u.firstName,
+        lastName: u.lastName,
+        email: u.email,
+        avatar: u.avatar || ""
+      }
+    });
+  } catch (error) {
+    return res.status(500).json({ message: "Lỗi máy chủ khi tải thông tin tài khoản." });
+  }
 });
 
 module.exports = router;

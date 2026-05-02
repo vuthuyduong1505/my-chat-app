@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Loader2, Search } from "lucide-react";
 import api from "../api";
 import ChatWindow from "../components/ChatWindow";
+import UserAvatar from "../components/UserAvatar";
 import { useAuth } from "../context/AuthContext";
 import { useSocket } from "../context/SocketContext";
 
@@ -46,10 +47,11 @@ function HomePage() {
     fetchUsers();
   }, [currentUserId]);
 
-  const getAvatarLetter = (friend) => {
-    const base = friend?.firstName || friend?.lastName || friend?.email || "?";
-    return base[0]?.toUpperCase() || "?";
-  };
+  const safeFriends = useMemo(() => (Array.isArray(friends) ? friends : []), [friends]);
+  const onlineUserSet = useMemo(
+    () => (onlineUsers instanceof Set ? onlineUsers : new Set(Array.isArray(onlineUsers) ? onlineUsers.map(String) : [])),
+    [onlineUsers]
+  );
 
   const friendKey = (friend) => String(friend._id || friend.id || friend.email);
 
@@ -78,13 +80,13 @@ function HomePage() {
             <div className="flex items-center justify-center rounded-2xl border border-primary/5 bg-light px-3 py-6 text-primary/50">
               <Loader2 size={18} className="animate-spin" />
             </div>
-          ) : friends.length === 0 ? (
+          ) : safeFriends.length === 0 ? (
             <p className="rounded-2xl border border-primary/5 bg-light px-3 py-3 text-sm text-primary/50">Chưa có bạn bè nào.</p>
           ) : (
-            friends.map((friend) => {
+            safeFriends.map((friend) => {
               const id = friendKey(friend);
               const selected = selectedFriend && friendKey(selectedFriend) === id;
-              const isOnline = onlineUsers.has(String(id));
+              const isOnline = onlineUserSet.has(String(id));
               return (
                 <button
                   key={id}
@@ -97,9 +99,7 @@ function HomePage() {
                   }`}
                 >
                   <div className="relative shrink-0">
-                    <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10 text-sm font-semibold text-primary ring-2 ring-transparent">
-                      {getAvatarLetter(friend)}
-                    </div>
+                    <UserAvatar user={friend} size="sm" className="ring-2 ring-transparent" alt="" />
                     {isOnline ? (
                       <span
                         className="absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full bg-green-500 ring-2 ring-light"

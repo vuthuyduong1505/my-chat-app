@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import api from "../api";
+import UserAvatar from "../components/UserAvatar";
 
 const navItems = [
   { to: "/", end: true, label: "Trò chuyện", icon: MessageSquare },
@@ -68,14 +69,29 @@ function MainLayout() {
       >
         <div
           className={`flex items-center border-b border-white/10 py-4 transition-all duration-300 ${
-            collapsed ? "justify-center px-2" : "justify-between px-4"
+            collapsed ? "flex-col items-center justify-center gap-2 px-2" : "justify-between px-4"
           }`}
         >
-          {!collapsed && (
-            <div className="min-w-0">
-              <p className="truncate text-xs font-medium uppercase tracking-wider text-secondary">D-Chat</p>
-              <p className="truncate text-sm font-semibold text-white/95">{displayName}</p>
+          {!collapsed ? (
+            <div className="flex min-w-0 flex-1 items-center gap-3">
+              <UserAvatar
+                user={user}
+                size="md"
+                className="bg-white/10 text-white ring-1 ring-white/25"
+                alt=""
+              />
+              <div className="min-w-0">
+                <p className="truncate text-xs font-medium uppercase tracking-wider text-secondary">D-Chat</p>
+                <p className="truncate text-sm font-semibold text-white/95">{displayName}</p>
+              </div>
             </div>
+          ) : (
+            <UserAvatar
+              user={user}
+              size="sm"
+              className="bg-white/10 text-white ring-1 ring-white/25"
+              alt=""
+            />
           )}
           <button
             type="button"
