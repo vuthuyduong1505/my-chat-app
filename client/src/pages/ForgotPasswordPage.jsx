@@ -15,8 +15,8 @@ function ForgotPasswordPage() {
     setLoading(true);
 
     try {
-      const response = await api.post("/auth/forgot-password", { email });
-      toast.success(response.data?.message || "Mã khôi phục đã được gửi");
+      const response = await api.post("/auth/forgot-password", { email: email.trim() });
+      toast.success(response.data?.message || "Nếu email tồn tại, link khôi phục đã được gửi.");
       setEmail("");
     } catch (err) {
       setError(err.response?.data?.message || "Không thể gửi mã khôi phục. Vui lòng thử lại.");
@@ -30,7 +30,7 @@ function ForgotPasswordPage() {
 
   return (
     <>
-      <AuthCard title="Quên mật khẩu" subtitle="Nhập email để nhận mã khôi phục.">
+      <AuthCard title="Quên mật khẩu" subtitle="Nhập email để nhận link đặt lại mật khẩu.">
         <form onSubmit={handleSubmit} className="mt-6 space-y-4">
           <input
             type="email"
@@ -48,7 +48,7 @@ function ForgotPasswordPage() {
             disabled={loading}
             className="w-full rounded-2xl bg-primary py-3.5 text-sm font-semibold text-light shadow-md shadow-primary/25 transition hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {loading ? "Đang gửi..." : "Gửi mã khôi phục"}
+            {loading ? "Đang gửi..." : "Gửi link khôi phục"}
           </button>
         </form>
 

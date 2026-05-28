@@ -4,6 +4,8 @@ const bcrypt = require("bcryptjs");
 const User = require("../models/User");
 const FriendRequest = require("../models/FriendRequest");
 const authMiddleware = require("../middleware/authMiddleware");
+const cloudinary = require("../config/cloudinary");
+const { uploadAvatar } = require("../middleware/uploadMiddleware");
 
 const router = express.Router();
 
@@ -233,12 +235,34 @@ router.get("/friends", authMiddleware, async (req, res) => {
   }
 });
 
-router.put("/profile", authMiddleware, async (req, res) => {
+router.put("/profile", authMiddleware, uploadAvatar.single("avatar"), async (req, res) => {
   try {
-    const { firstName, lastName, avatar } = req.body;
+    const { firstName, lastName } = req.body;
 
     if (!firstName?.trim() || !lastName?.trim()) {
       return res.status(400).json({ message: "Họ và tên không được để trống." });
+    }
+
+    let avatarUrl;
+    // Luồng Upload Avatar:
+    // 1) Nhận file ảnh từ multipart/form-data qua multer (đang nằm trong bộ nhớ RAM).
+    // 2) Đẩy buffer ảnh này lên Cloudinary bằng upload_stream.
+    // 3) Lấy secure_url trả về và lưu vào trường avatar trong MongoDB.
+    if (req.file) {
+      const uploadResult = await new Promise((resolve, reject) => {
+        const stream = cloudinary.uploader.upload_stream(
+          {
+            folder: "chat-app/avatars",
+            resource_type: "image"
+          },
+          (error, result) => {
+            if (error) return reject(error);
+            return resolve(result);
+          }
+        );
+        stream.end(req.file.buffer);
+      });
+      avatarUrl = uploadResult.secure_url;
     }
 
     const updatedUser = await User.findByIdAndUpdate(
@@ -246,7 +270,7 @@ router.put("/profile", authMiddleware, async (req, res) => {
       {
         firstName: firstName.trim(),
         lastName: lastName.trim(),
-        avatar: typeof avatar === "string" ? avatar.trim() : ""
+        ...(avatarUrl ? { avatar: avatarUrl } : {})
       },
       { new: true, runValidators: true }
     ).select("firstName lastName email avatar");
@@ -268,6 +292,16 @@ router.put("/profile", authMiddleware, async (req, res) => {
   } catch (error) {
     return res.status(500).json({ message: "Lỗi máy chủ khi cập nhật hồ sơ." });
   }
+});
+
+router.use((error, req, res, next) => {
+  if (error?.message === "Chỉ được tải lên file ảnh.") {
+    return res.status(400).json({ message: error.message });
+  }
+  if (error?.code === "LIMIT_FILE_SIZE") {
+    return res.status(400).json({ message: "Kích thước ảnh tối đa là 3MB." });
+  }
+  return next(error);
 });
 
 router.put("/change-password", authMiddleware, async (req, res) => {

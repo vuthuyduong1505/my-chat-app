@@ -23,7 +23,8 @@ api.interceptors.response.use(
     const isAuthScreenRequest =
       requestUrl.includes("/auth/login") || 
       requestUrl.includes("/auth/register") ||  
-      requestUrl.includes("/auth/forgot-password");
+      requestUrl.includes("/auth/forgot-password") ||
+      requestUrl.includes("/auth/reset-password");
 
     if (status === 401 && !isAuthScreenRequest) {
       localStorage.removeItem("token");

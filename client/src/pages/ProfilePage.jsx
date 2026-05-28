@@ -11,6 +11,8 @@ function ProfilePage() {
   const [lastName, setLastName] = useState("");
   const [email, setEmail] = useState("");
   const [avatarUrl, setAvatarUrl] = useState("");
+  const [avatarFile, setAvatarFile] = useState(null);
+  const [avatarPreview, setAvatarPreview] = useState("");
   const [oldPassword, setOldPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmNewPassword, setConfirmNewPassword] = useState("");
@@ -21,7 +23,29 @@ function ProfilePage() {
     setLastName(user?.lastName || "");
     setEmail(user?.email || "");
     setAvatarUrl(user?.avatar ?? "");
+    setAvatarFile(null);
+    setAvatarPreview("");
   }, [user]);
+
+  useEffect(() => {
+    if (!avatarFile) {
+      setAvatarPreview("");
+      return undefined;
+    }
+    const objectUrl = URL.createObjectURL(avatarFile);
+    setAvatarPreview(objectUrl);
+    return () => URL.revokeObjectURL(objectUrl);
+  }, [avatarFile]);
+
+  const handleChooseAvatar = (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      toast.error("Vui lòng chọn đúng file ảnh.");
+      return;
+    }
+    setAvatarFile(file);
+  };
 
   const handleSave = async (event) => {
     event.preventDefault();
@@ -45,11 +69,13 @@ function ProfilePage() {
 
     setSaving(true);
     try {
-      const profileResponse = await api.put("/users/profile", {
-        firstName: firstName.trim(),
-        lastName: lastName.trim(),
-        avatar: avatarUrl.trim()
-      });
+      const formData = new FormData();
+      formData.append("firstName", firstName.trim());
+      formData.append("lastName", lastName.trim());
+      if (avatarFile) {
+        formData.append("avatar", avatarFile);
+      }
+      const profileResponse = await api.put("/users/profile", formData);
 
       const nextUser = profileResponse.data?.user;
       if (nextUser) {
@@ -78,14 +104,13 @@ function ProfilePage() {
       <form onSubmit={handleSave} className="mx-auto w-full max-w-5xl space-y-4">
         <section className="rounded-3xl border border-primary/10 bg-light p-4 shadow-soft sm:p-5">
           <h1 className="text-xl font-bold text-primary md:text-2xl">Hồ sơ cá nhân</h1>
-          <p className="mt-1 text-sm text-primary/60">Quản lý thông tin cá nhân và bảo mật tài khoản của bạn.</p>
         </section>
         
         <section className="grid gap-4 xl:grid-cols-[300px_1fr]">
           <div className="rounded-3xl border border-primary/10 bg-light p-4 shadow-soft sm:p-5">
             <p className="mb-4 text-sm font-semibold text-primary">Ảnh đại diện</p>
             <UserAvatar
-              avatar={avatarUrl}
+              avatar={avatarPreview || avatarUrl}
               firstName={firstName}
               lastName={lastName}
               email={email}
@@ -95,15 +120,18 @@ function ProfilePage() {
             />
             <label className="mb-2 inline-flex items-center gap-2 text-sm font-medium text-primary/75">
               <Camera size={16} className="text-secondary" />
-              Link ảnh đại diện
+              Chọn ảnh đại diện
             </label>
-            <input
-              type="url"
-              value={avatarUrl}
-              onChange={(event) => setAvatarUrl(event.target.value)}
-              placeholder="https://example.com/avatar.jpg"
-              className="w-full rounded-2xl border border-primary/15 bg-light px-4 py-3 text-sm text-primary outline-none transition placeholder:text-primary/35 focus:border-secondary focus:ring-2 focus:ring-secondary/35"
-            />
+            <label className="inline-flex w-full cursor-pointer items-center justify-center gap-2 rounded-2xl border border-dashed border-primary/30 px-4 py-3 text-sm font-medium text-primary transition hover:border-secondary hover:bg-accent/30">
+              <Camera size={16} />
+              {avatarFile ? "Đổi ảnh khác" : "Chọn ảnh từ máy"}
+              <input type="file" accept="image/*" onChange={handleChooseAvatar} className="hidden" />
+            </label>
+            {avatarFile ? (
+              <p className="mt-2 text-xs text-primary/60">Đã chọn: {avatarFile.name}</p>
+            ) : (
+              <p className="mt-2 text-xs text-primary/60">Hỗ trợ JPG/PNG/WebP, tối đa 3MB.</p>
+            )}
           </div>
 
             <div className="space-y-4">
@@ -206,7 +234,7 @@ function ProfilePage() {
             className="inline-flex min-w-[180px] items-center justify-center gap-2 rounded-2xl bg-primary px-5 py-3 text-sm font-semibold text-light shadow-md shadow-primary/25 transition hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-70"
           >
             {saving ? <Loader2 size={16} className="animate-spin" /> : null}
-            {saving ? "Đang lưu..." : "Lưu thay đổi"}
+            {saving ? "Đang tải lên..." : "Lưu thay đổi"}
           </button>
         </div>
       </form>
