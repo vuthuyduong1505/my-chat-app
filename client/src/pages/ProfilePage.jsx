@@ -119,8 +119,6 @@ function ProfilePage() {
               className="mx-auto mb-4 border-4 border-secondary/40 !ring-0"
             />
             <label className="mb-2 inline-flex items-center gap-2 text-sm font-medium text-primary/75">
-              <Camera size={16} className="text-secondary" />
-              Chọn ảnh đại diện
             </label>
             <label className="inline-flex w-full cursor-pointer items-center justify-center gap-2 rounded-2xl border border-dashed border-primary/30 px-4 py-3 text-sm font-medium text-primary transition hover:border-secondary hover:bg-accent/30">
               <Camera size={16} />
@@ -130,7 +128,7 @@ function ProfilePage() {
             {avatarFile ? (
               <p className="mt-2 text-xs text-primary/60">Đã chọn: {avatarFile.name}</p>
             ) : (
-              <p className="mt-2 text-xs text-primary/60">Hỗ trợ JPG/PNG/WebP, tối đa 3MB.</p>
+              <p className="mt-2 text-xs text-primary/60"></p>
             )}
           </div>
 

@@ -5,10 +5,56 @@ import UserAvatar from "./UserAvatar";
 import { useAuth } from "../context/AuthContext";
 import { useSocket } from "../context/SocketContext";
 
-function formatMessageTime(iso) {
+function getStartOfWeek(date) {
+  const d = new Date(date);
+  const day = d.getDay(); // 0 (CN) -> 6 (T7)
+  const distanceToMonday = day === 0 ? 6 : day - 1;
+  d.setHours(0, 0, 0, 0);
+  d.setDate(d.getDate() - distanceToMonday);
+  return d;
+}
+
+function isSameDate(a, b) {
+  return (
+    a.getFullYear() === b.getFullYear() &&
+    a.getMonth() === b.getMonth() &&
+    a.getDate() === b.getDate()
+  );
+}
+
+function formatVietnameseChatTime(iso) {
   if (!iso) return "";
   try {
     const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return "";
+
+    const now = new Date();
+    const hhmm = d.toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" });
+
+    if (isSameDate(d, now)) return hhmm;
+
+    const startOfCurrentWeek = getStartOfWeek(now);
+    const startOfMessageWeek = getStartOfWeek(d);
+    if (startOfCurrentWeek.getTime() === startOfMessageWeek.getTime()) {
+      const weekdays = ["CN", "T2", "T3", "T4", "T5", "T6", "T7"];
+      return `${hhmm} ${weekdays[d.getDay()]}`;
+    }
+
+    if (d.getFullYear() === now.getFullYear()) {
+      return `${hhmm}, ${d.getDate()} thg ${d.getMonth() + 1}`;
+    }
+
+    return `${hhmm}, ${d.getDate()} thg ${d.getMonth() + 1}, ${d.getFullYear()}`;
+  } catch {
+    return "";
+  }
+}
+
+function formatHoverTime(iso) {
+  if (!iso) return "";
+  try {
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return "";
     return d.toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" });
   } catch {
     return "";
@@ -188,18 +234,71 @@ function ChatWindow({ friend, currentUserId }) {
           ) : messages.length === 0 ? (
             <p className="py-8 text-center text-sm text-primary/45">Chưa có tin nhắn nào</p>
           ) : (
-            messages.map((m) => {
+            messages.map((m, index) => {
               const isMine = String(m.sender) === String(currentUserId);
-              const time = formatMessageTime(m.createdAt);
+              const previousMessage = index > 0 ? messages[index - 1] : null;
+              const currentDate = new Date(m.createdAt);
+              const previousDate = previousMessage ? new Date(previousMessage.createdAt) : null;
+
+              const hasValidCurrentDate = !Number.isNaN(currentDate.getTime());
+              const hasValidPreviousDate = previousDate && !Number.isNaN(previousDate.getTime());
+              const isFirstMessage = index === 0;
+              const isNewDay =
+                hasValidCurrentDate && hasValidPreviousDate ? !isSameDate(currentDate, previousDate) : false;
+              const isOverThirtyMinutes =
+                hasValidCurrentDate && hasValidPreviousDate
+                  ? currentDate.getTime() - previousDate.getTime() > 30 * 60 * 1000
+                  : false;
+              const shouldShowTimestampSeparator = isFirstMessage || isNewDay || isOverThirtyMinutes;
+              const separatorText = formatVietnameseChatTime(m.createdAt);
+              const hoverTime = formatHoverTime(m.createdAt);
 
               if (isMine) {
                 return (
-                  <div key={String(m._id)} className="flex w-full justify-end">
-                    <div className="flex w-full max-w-[min(92%,480px)] flex-col items-end">
-                      <div className="flex w-full min-w-0 flex-row-reverse items-end gap-2">
-                        <UserAvatar user={user} size="xs" className="ring-1 ring-primary/15" alt="" />
+                  <div key={String(m._id)}>
+                    {shouldShowTimestampSeparator && separatorText ? (
+                      <div className="my-4 text-center text-[11px] text-primary/40">{separatorText}</div>
+                    ) : null}
+
+                    <div className="group/message-row flex w-full justify-end">
+                      <div className="flex w-full max-w-[min(92%,480px)] flex-col items-end">
+                        <div className="flex w-full min-w-0 items-center justify-end gap-2">
+                          <span
+                            className={`shrink-0 text-[10px] leading-none tabular-nums text-primary/35 opacity-0 transition-opacity duration-150 group-hover/message-row:opacity-100 ${
+                              hoverTime ? "" : "hidden"
+                            }`}
+                          >
+                            {hoverTime}
+                          </span>
+                          <div
+                            className={`min-w-0 max-w-[80%] rounded-3xl rounded-br-2xl bg-primary px-3.5 py-2.5 text-sm text-light shadow-sm ${
+                              m.pending ? "opacity-90" : ""
+                            }`}
+                          >
+                            <p className="break-all whitespace-pre-wrap [overflow-wrap:anywhere] leading-snug">
+                              {m.content}
+                            </p>
+                          </div>
+                          <UserAvatar user={user} size="xs" className="ring-1 ring-primary/15" alt="" />
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              }
+
+              return (
+                <div key={String(m._id)}>
+                  {shouldShowTimestampSeparator && separatorText ? (
+                    <div className="my-4 text-center text-[11px] text-primary/40">{separatorText}</div>
+                  ) : null}
+
+                  <div className="group/message-row flex w-full justify-start">
+                    <div className="flex w-full max-w-[min(92%,480px)] flex-col items-start">
+                      <div className="flex w-full min-w-0 flex-row items-center gap-2">
+                        <UserAvatar user={friend} size="xs" className="ring-1 ring-primary/15" alt="" />
                         <div
-                          className={`min-w-0 max-w-[80%] rounded-3xl rounded-br-2xl bg-primary px-3.5 py-2.5 text-sm text-light shadow-sm ${
+                          className={`min-w-0 max-w-[80%] rounded-3xl rounded-bl-2xl bg-gray-100 px-3.5 py-2.5 text-sm text-primary shadow-sm ${
                             m.pending ? "opacity-90" : ""
                           }`}
                         >
@@ -207,29 +306,15 @@ function ChatWindow({ friend, currentUserId }) {
                             {m.content}
                           </p>
                         </div>
-                      </div>
-                      <span className="mr-10 text-[10px] leading-none tabular-nums text-gray-400">{time}</span>
-                    </div>
-                  </div>
-                );
-              }
-
-              return (
-                <div key={String(m._id)} className="flex w-full justify-start">
-                  <div className="flex w-full max-w-[min(92%,480px)] flex-col items-start">
-                    <div className="flex w-full min-w-0 flex-row items-end gap-2">
-                      <UserAvatar user={friend} size="xs" className="ring-1 ring-primary/15" alt="" />
-                      <div
-                        className={`min-w-0 max-w-[80%] rounded-3xl rounded-bl-2xl bg-gray-100 px-3.5 py-2.5 text-sm text-primary shadow-sm ${
-                          m.pending ? "opacity-90" : ""
-                        }`}
-                      >
-                        <p className="break-all whitespace-pre-wrap [overflow-wrap:anywhere] leading-snug">
-                          {m.content}
-                        </p>
+                        <span
+                          className={`shrink-0 text-[10px] leading-none tabular-nums text-primary/35 opacity-0 transition-opacity duration-150 group-hover/message-row:opacity-100 ${
+                            hoverTime ? "" : "hidden"
+                          }`}
+                        >
+                          {hoverTime}
+                        </span>
                       </div>
                     </div>
-                    <span className="ml-10 text-[10px] leading-none tabular-nums text-gray-400">{time}</span>
                   </div>
                 </div>
               );
