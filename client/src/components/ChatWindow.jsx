@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { FileText, Loader2, MessageCircle, Paperclip, Send, X } from "lucide-react";
+import { FileText, Loader2, MessageCircle, Paperclip, Plus, Send, X } from "lucide-react";
 import toast from "react-hot-toast";
 import api from "../api";
 import UserAvatar from "./UserAvatar";
@@ -134,6 +134,75 @@ function FileAttachmentBubble({ url, fileName, variant = "received" }) {
   );
 }
 
+function createQueuedAttachment(file) {
+  const isImage = file.type.startsWith("image/");
+  return {
+    id: `local-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+    file,
+    fileName: file.name || "tep-dinh-kem",
+    isImage,
+    previewUrl: isImage ? URL.createObjectURL(file) : null,
+    status: "queued",
+    progress: 0
+  };
+}
+
+function AttachmentPreviewStrip({ attachments, onRemove, onAddMore, disabled }) {
+  if (attachments.length === 0) return null;
+
+  return (
+    <div className="mb-2 flex gap-2 overflow-x-auto pb-1">
+      {attachments.map((item) => (
+        <div key={item.id} className="group relative h-16 w-16 shrink-0">
+          <div className="relative h-16 w-16 overflow-hidden rounded-lg border border-[#003B44]/15 bg-[#003B44]/5 shadow-sm">
+            {item.isImage && item.previewUrl ? (
+              <img src={item.previewUrl} alt={item.fileName} className="h-full w-full object-cover" />
+            ) : (
+              <div className="flex h-full w-full flex-col items-center justify-center gap-0.5 px-1">
+                <FileText size={20} className="text-[#003B44]" />
+                <span className="line-clamp-2 w-full text-center text-[8px] leading-tight text-[#003B44]/70">
+                  {item.fileName}
+                </span>
+              </div>
+            )}
+            {item.status === "uploading" ? (
+              <div className="absolute inset-0 flex flex-col items-center justify-center bg-[#003B44]/70">
+                <Loader2 size={18} className="animate-spin text-[#00BFA5]" />
+                <span className="mt-0.5 text-[10px] font-semibold tabular-nums text-light">{item.progress}%</span>
+              </div>
+            ) : null}
+            {item.status === "error" ? (
+              <div className="absolute inset-0 flex items-center justify-center bg-red-600/50 text-[10px] font-medium text-light">
+                Lỗi
+              </div>
+            ) : null}
+          </div>
+          {item.status === "queued" || item.status === "error" ? (
+            <button
+              type="button"
+              onClick={() => onRemove(item.id)}
+              disabled={disabled}
+              className="absolute -right-1 -top-1 flex h-5 w-5 items-center justify-center rounded-full bg-[#003B44]/85 text-light opacity-0 shadow transition group-hover:opacity-100 hover:bg-[#003B44] disabled:opacity-40"
+              aria-label="Xóa tệp đính kèm"
+            >
+              <X size={12} />
+            </button>
+          ) : null}
+        </div>
+      ))}
+      <button
+        type="button"
+        onClick={onAddMore}
+        disabled={disabled}
+        className="flex h-16 w-16 shrink-0 items-center justify-center rounded-lg border-2 border-dashed border-[#00BFA5]/45 bg-[#003B44]/5 text-[#00BFA5] transition hover:border-[#00BFA5] hover:bg-[#003B44]/10 disabled:opacity-40"
+        aria-label="Thêm tệp đính kèm"
+      >
+        <Plus size={22} strokeWidth={2} />
+      </button>
+    </div>
+  );
+}
+
 function MessageRow({ message, isMine, hoverTime, onOpenImage, user, friend }) {
   const hasImage = message.fileType === "image" && message.fileUrl;
   const hasFile = message.fileType === "file" && message.fileUrl;
@@ -214,12 +283,16 @@ function ChatWindow({ friend, currentUserId }) {
   const [messages, setMessages] = useState([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
   const [draft, setDraft] = useState("");
-  const [attachment, setAttachment] = useState(null);
-  const [uploading, setUploading] = useState(false);
-  const [uploadProgress, setUploadProgress] = useState(0);
+  const [attachments, setAttachments] = useState([]);
+  const [sending, setSending] = useState(false);
   const [lightboxUrl, setLightboxUrl] = useState("");
   const bottomRef = useRef(null);
   const fileInputRef = useRef(null);
+  const attachmentsRef = useRef(attachments);
+
+  useEffect(() => {
+    attachmentsRef.current = attachments;
+  }, [attachments]);
 
   const friendId = useMemo(() => {
     if (!friend) return null;
@@ -317,20 +390,48 @@ function ChatWindow({ friend, currentUserId }) {
     };
   }, [socket, friendId, currentUserId]);
 
-  const send = () => {
-    const text = draft.trim();
-    if ((!text && !attachment?.fileUrl) || uploading || !socket?.connected || !friendId || !currentUserId) return;
+  const revokePreview = (item) => {
+    if (item?.previewUrl) URL.revokeObjectURL(item.previewUrl);
+  };
 
+  const addFilesToQueue = (files) => {
+    const list = Array.from(files || []).filter(Boolean);
+    if (!list.length) return;
+    setAttachments((prev) => [...prev, ...list.map((file) => createQueuedAttachment(file))]);
+  };
+
+  const removeQueuedAttachment = (id) => {
+    setAttachments((prev) => {
+      const target = prev.find((item) => item.id === id);
+      revokePreview(target);
+      return prev.filter((item) => item.id !== id);
+    });
+  };
+
+  const uploadSingleFile = async (file, onProgress) => {
+    const formData = new FormData();
+    formData.append("file", file);
+    const res = await api.post("/chat/upload", formData, {
+      headers: { "Content-Type": "multipart/form-data" },
+      onUploadProgress: (event) => {
+        if (!event.total) return;
+        onProgress(Math.round((event.loaded * 100) / event.total));
+      }
+    });
+    return res.data;
+  };
+
+  const emitChatMessage = ({ content = "", fileUrl = "", fileType = "", fileName = "" }) => {
     const tempId = `t-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
     const optimistic = {
       _id: tempId,
       tempId,
       sender: String(currentUserId),
       receiver: friendId,
-      content: text,
-      fileUrl: attachment?.fileUrl || "",
-      fileType: attachment?.fileType || "",
-      fileName: attachment?.fileName || "",
+      content,
+      fileUrl,
+      fileType,
+      fileName,
       createdAt: new Date().toISOString(),
       pending: true
     };
@@ -338,66 +439,85 @@ function ChatWindow({ friend, currentUserId }) {
     setMessages((prev) => [...prev, optimistic]);
     socket.emit("send_message", {
       receiverId: friendId,
-      content: text,
-      fileUrl: attachment?.fileUrl || "",
-      fileType: attachment?.fileType || "",
-      fileName: attachment?.fileName || "",
+      content,
+      fileUrl,
+      fileType,
+      fileName,
       tempId
     });
-    setDraft("");
-    setAttachment(null);
-    setUploadProgress(0);
   };
 
-  const uploadAttachment = async (file) => {
-    if (!file || !friendId) return;
-    setUploading(true);
-    setUploadProgress(0);
+  const send = async () => {
+    const text = draft.trim();
+    const queue = attachments.filter((item) => item.status === "queued" || item.status === "error");
+
+    if ((!text && queue.length === 0) || sending || !socket?.connected || !friendId || !currentUserId) return;
+
+    setSending(true);
+    setDraft("");
+
     try {
-      const formData = new FormData();
-      formData.append("file", file);
-      const res = await api.post("/chat/upload", formData, {
-        headers: { "Content-Type": "multipart/form-data" },
-        onUploadProgress: (event) => {
-          if (!event.total) return;
-          setUploadProgress(Math.round((event.loaded * 100) / event.total));
+      if (text) {
+        emitChatMessage({ content: text });
+      }
+
+      for (const item of queue) {
+        setAttachments((prev) =>
+          prev.map((entry) => (entry.id === item.id ? { ...entry, status: "uploading", progress: 0, error: false } : entry))
+        );
+
+        try {
+          const uploaded = await uploadSingleFile(item.file, (progress) => {
+            setAttachments((prev) =>
+              prev.map((entry) => (entry.id === item.id ? { ...entry, progress } : entry))
+            );
+          });
+
+          emitChatMessage({
+            fileUrl: uploaded?.fileUrl || "",
+            fileType: uploaded?.fileType || "file",
+            fileName: uploaded?.fileName || item.fileName
+          });
+
+          revokePreview(item);
+          setAttachments((prev) => prev.filter((entry) => entry.id !== item.id));
+        } catch {
+          setAttachments((prev) =>
+            prev.map((entry) => (entry.id === item.id ? { ...entry, status: "error", progress: 0 } : entry))
+          );
+          toast.error(`Không thể tải lên: ${item.fileName}`);
         }
-      });
-      setAttachment({
-        fileUrl: res.data?.fileUrl || "",
-        fileType: res.data?.fileType || "file",
-        fileName: res.data?.fileName || "attachment"
-      });
-    } catch {
-      setAttachment(null);
-      setUploadProgress(0);
-      toast.error("Tải tệp lên thất bại. Vui lòng thử lại.");
+      }
     } finally {
-      setUploading(false);
+      setSending(false);
     }
   };
 
-  const handleChooseFile = async (event) => {
-    const file = event.target.files?.[0];
+  const handleChooseFile = (event) => {
+    const files = Array.from(event.target.files || []);
     event.target.value = "";
-    if (!file) return;
-    await uploadAttachment(file);
+    addFilesToQueue(files);
   };
 
-  const handlePaste = async (event) => {
-    // Trình duyệt sẽ đặt ảnh chụp/ảnh copy vào clipboard dưới dạng File trong clipboardData.items.
-    // Khi phát hiện item là ảnh, ta chặn thao tác paste text mặc định để tránh ký tự rác,
-    // sau đó upload ảnh ngay để tạo preview trước khi người dùng bấm gửi.
+  const handlePaste = (event) => {
+    // Trình duyệt đặt ảnh copy/chụp màn hình vào clipboard dưới dạng File trong clipboardData.items.
+    // Lấy tất cả item ảnh, chặn paste text mặc định, thêm vào hàng đợi — upload khi bấm Gửi.
     const clipboardItems = Array.from(event.clipboardData?.items || []);
-    const imageItem = clipboardItems.find((item) => item.type.startsWith("image/"));
-    if (!imageItem) return;
+    const pastedImages = clipboardItems
+      .filter((item) => item.type.startsWith("image/"))
+      .map((item) => item.getAsFile())
+      .filter(Boolean);
 
-    const pastedImageFile = imageItem.getAsFile();
-    if (!pastedImageFile) return;
+    if (!pastedImages.length) return;
 
     event.preventDefault();
-    await uploadAttachment(pastedImageFile);
+    addFilesToQueue(pastedImages);
   };
+
+  const openFilePicker = () => fileInputRef.current?.click();
+
+  const hasQueuedAttachments = attachments.some((item) => item.status === "queued" || item.status === "error");
+  const canSend = Boolean(draft.trim() || hasQueuedAttachments);
 
   const onlineUserSet = useMemo(
     () => (onlineUsers instanceof Set ? onlineUsers : new Set(Array.isArray(onlineUsers) ? onlineUsers.map(String) : [])),
@@ -407,9 +527,19 @@ function ChatWindow({ friend, currentUserId }) {
 
   useEffect(() => {
     setDraft("");
-    setAttachment(null);
-    setUploadProgress(0);
+    setSending(false);
+    setAttachments((prev) => {
+      prev.forEach(revokePreview);
+      return [];
+    });
   }, [friendId]);
+
+  useEffect(
+    () => () => {
+      attachmentsRef.current.forEach(revokePreview);
+    },
+    []
+  );
 
   if (!friend || !friendId) {
     return (
@@ -497,43 +627,20 @@ function ChatWindow({ friend, currentUserId }) {
         </div>
 
         <div className="relative z-10 shrink-0 border-t border-primary/10 bg-light/90 p-3 backdrop-blur-sm md:p-4">
-          {attachment ? (
-            <div className="mb-2 flex items-center gap-2 rounded-xl border border-[#00BFA5]/30 bg-[#003B44]/5 px-3 py-2">
-              {attachment.fileType === "image" ? (
-                <img src={attachment.fileUrl} alt={attachment.fileName || "Preview"} className="h-12 w-12 rounded-lg object-cover" />
-              ) : (
-                <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-[#003B44]/10">
-                  <FileText size={18} className="text-[#003B44]" />
-                </div>
-              )}
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-xs font-medium text-[#003B44]">{attachment.fileName}</p>
-                <p className="text-[11px] text-[#003B44]/65">{attachment.fileType === "image" ? "Ảnh đính kèm" : "Tệp đính kèm"}</p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setAttachment(null)}
-                disabled={uploading}
-                className="rounded-lg p-1 text-[#003B44]/80 transition hover:bg-[#003B44]/10 disabled:opacity-40"
-                aria-label="Xóa tệp đính kèm"
-              >
-                <X size={16} />
-              </button>
-            </div>
-          ) : null}
+          <input ref={fileInputRef} type="file" multiple className="hidden" onChange={handleChooseFile} />
 
-          {uploading ? (
-            <div className="mb-2 h-1.5 w-full overflow-hidden rounded-full bg-[#003B44]/10">
-              <div className="h-full rounded-full bg-[#00BFA5] transition-all duration-150" style={{ width: `${uploadProgress}%` }} />
-            </div>
-          ) : null}
+          <AttachmentPreviewStrip
+            attachments={attachments}
+            onRemove={removeQueuedAttachment}
+            onAddMore={openFilePicker}
+            disabled={sending || !connected}
+          />
 
           <div className="flex items-center gap-2 rounded-2xl border border-[#003B44]/15 bg-accent/50 p-2 pl-2 shadow-sm focus-within:shadow-md focus-within:ring-2 focus-within:ring-[#00BFA5]/40">
-            <input ref={fileInputRef} type="file" className="hidden" onChange={handleChooseFile} />
             <button
               type="button"
-              onClick={() => fileInputRef.current?.click()}
-              disabled={!connected || uploading}
+              onClick={openFilePicker}
+              disabled={!connected || sending}
               className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#003B44] text-[#00BFA5] transition hover:opacity-90 disabled:opacity-50"
               aria-label="Đính kèm file"
             >
@@ -551,17 +658,17 @@ function ChatWindow({ friend, currentUserId }) {
                 }
               }}
               placeholder={connected ? "Nhập tin nhắn" : "Đang kết nối máy chủ…"}
-              disabled={!connected || uploading}
+              disabled={!connected || sending}
               className="min-w-0 flex-1 rounded-xl border-0 bg-light px-4 py-2.5 text-sm text-primary placeholder:text-primary/35 outline-none ring-1 ring-[#003B44]/15 transition focus:ring-2 focus:ring-[#00BFA5] disabled:opacity-60"
             />
             <button
               type="button"
               onClick={send}
-              disabled={!connected || uploading || (!draft.trim() && !attachment?.fileUrl)}
+              disabled={!connected || sending || !canSend}
               className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-[#003B44] text-[#00BFA5] shadow-md transition hover:opacity-90 disabled:opacity-40"
               aria-label="Gửi"
             >
-              <Send size={18} />
+              {sending ? <Loader2 size={18} className="animate-spin" /> : <Send size={18} />}
             </button>
           </div>
         </div>
