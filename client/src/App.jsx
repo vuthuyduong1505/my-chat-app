@@ -26,14 +26,15 @@ function App() {
           </ProtectedRoute>
         }
       >
-        <Route index element={<HomePage />} />
+        <Route index element={<Navigate to="/chat" replace />} />
+        <Route path="chat/:userId?" element={<HomePage />} />
         <Route path="friends" element={<FriendsPage />} />
         <Route path="discover" element={<DiscoverPage />} />
         <Route path="profile" element={<ProfilePage />} />
       </Route>
 
-      <Route path="/home" element={<Navigate to="/" replace />} />
-      <Route path="*" element={<Navigate to="/" replace />} />
+      <Route path="/home" element={<Navigate to="/chat" replace />} />
+      <Route path="*" element={<Navigate to="/chat" replace />} />
     </Routes>
   );
 }

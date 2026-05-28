@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Loader2, Search } from "lucide-react";
+import { useNavigate, useParams } from "react-router-dom";
 import api from "../api";
 import ChatWindow from "../components/ChatWindow";
 import UserAvatar from "../components/UserAvatar";
@@ -7,6 +8,8 @@ import { useAuth } from "../context/AuthContext";
 import { useSocket } from "../context/SocketContext";
 
 function HomePage() {
+  const navigate = useNavigate();
+  const { userId } = useParams();
   const { user } = useAuth();
   const { onlineUsers } = useSocket();
   const [friends, setFriends] = useState([]);
@@ -55,6 +58,19 @@ function HomePage() {
 
   const friendKey = (friend) => String(friend._id || friend.id || friend.email);
 
+  useEffect(() => {
+    if (loadingFriends) return;
+
+    if (!userId) {
+      setSelectedFriend(null);
+      return;
+    }
+
+    const targetId = String(userId);
+    const matchedFriend = safeFriends.find((friend) => friendKey(friend) === targetId) || null;
+    setSelectedFriend(matchedFriend);
+  }, [userId, loadingFriends, safeFriends]);
+
   return (
     <div className="flex h-full min-h-0 flex-1 gap-3 p-3 md:gap-4 md:p-4">
       <aside className="flex w-[min(100%,320px)] min-w-[240px] max-w-[32%] flex-col rounded-2xl border border-primary/8 bg-accent/80 p-4 shadow-sm backdrop-blur-sm">
@@ -91,7 +107,7 @@ function HomePage() {
                 <button
                   key={id}
                   type="button"
-                  onClick={() => setSelectedFriend(friend)}
+                  onClick={() => navigate(`/chat/${id}`)}
                   className={`flex w-full items-center gap-3 rounded-2xl border px-2 py-2 text-left transition-all duration-200 ${
                     selected
                       ? "border-secondary/40 bg-secondary/15 shadow-sm ring-2 ring-secondary/25"

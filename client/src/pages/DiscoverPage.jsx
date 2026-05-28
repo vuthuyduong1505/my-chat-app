@@ -94,7 +94,7 @@ function DiscoverPage() {
                 return (
                   <button
                     type="button"
-                    onClick={() => navigate("/")}
+                    onClick={() => navigate(`/chat/${personId}`)}
                     className="flex w-full items-center justify-center gap-2 rounded-xl bg-primary px-3 py-2 text-sm font-medium text-light transition hover:bg-primary/90"
                   >
                     <MessageCircle size={16} />

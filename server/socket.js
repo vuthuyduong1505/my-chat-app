@@ -85,10 +85,14 @@ function attachSocketIO(httpServer) {
       socket.leave(chatRoomId(userId, friendId));
     });
 
-    socket.on("send_message", async ({ receiverId, content, tempId }) => {
+    socket.on("send_message", async ({ receiverId, content, tempId, fileUrl, fileType, fileName }) => {
       try {
         const text = typeof content === "string" ? content.trim() : "";
-        if (!receiverId || !text) return;
+        const attachmentUrl = typeof fileUrl === "string" ? fileUrl.trim() : "";
+        const attachmentType = fileType === "image" ? "image" : attachmentUrl ? "file" : "";
+        const attachmentName = typeof fileName === "string" ? fileName.trim() : "";
+
+        if (!receiverId || (!text && !attachmentUrl)) return;
         if (!mongoose.Types.ObjectId.isValid(receiverId)) return;
         if (String(receiverId) === String(userId)) return;
 
@@ -100,7 +104,10 @@ function attachSocketIO(httpServer) {
         const doc = await Message.create({
           sender: userId,
           receiver: receiverId,
-          content: text
+          content: text,
+          fileUrl: attachmentUrl,
+          fileType: attachmentType,
+          fileName: attachmentName
         });
 
         const payload = {
@@ -108,6 +115,9 @@ function attachSocketIO(httpServer) {
           sender: String(doc.sender),
           receiver: String(doc.receiver),
           content: doc.content,
+          fileUrl: doc.fileUrl || "",
+          fileType: doc.fileType || "",
+          fileName: doc.fileName || "",
           createdAt: doc.createdAt,
           updatedAt: doc.updatedAt,
           ...(tempId ? { tempId } : {})

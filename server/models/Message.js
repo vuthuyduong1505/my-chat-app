@@ -14,13 +14,34 @@ const messageSchema = new mongoose.Schema(
     },
     content: {
       type: String, //Nội dung tin nhắn
-      required: true,
+      default: "",
       trim: true
+    },
+    fileUrl: {
+      type: String,
+      trim: true,
+      default: ""
+    },
+    fileType: {
+      type: String,
+      enum: ["image", "file", ""],
+      default: ""
+    },
+    fileName: {
+      type: String,
+      trim: true,
+      default: ""
     }
   },
   {
     timestamps: true //Thời gian tạo và cập nhật
   }
 );
+
+messageSchema.path("content").validate(function validateContentOrFile(content) {
+  const hasText = typeof content === "string" && content.trim().length > 0;
+  const hasFile = typeof this.fileUrl === "string" && this.fileUrl.trim().length > 0;
+  return hasText || hasFile;
+}, "Tin nhắn phải có nội dung hoặc tệp đính kèm.");
 
 module.exports = mongoose.model("Message", messageSchema);  //Tạo model Message

@@ -3,6 +3,8 @@ const mongoose = require("mongoose");
 const Message = require("../models/Message");
 const User = require("../models/User");
 const authMiddleware = require("../middleware/authMiddleware");
+const cloudinary = require("../config/cloudinary");
+const { uploadChatFile, decodeMulterFileName } = require("../middleware/uploadMiddleware");
 
 const router = express.Router();
 
@@ -43,6 +45,9 @@ router.get("/:friendId", authMiddleware, async (req, res) => {
       sender: String(m.sender),
       receiver: String(m.receiver),
       content: m.content,
+      fileUrl: m.fileUrl || "",
+      fileType: m.fileType || "",
+      fileName: m.fileName || "",
       createdAt: m.createdAt,
       updatedAt: m.updatedAt
     }));
@@ -51,6 +56,55 @@ router.get("/:friendId", authMiddleware, async (req, res) => {
   } catch (error) {
     return res.status(500).json({ message: "Lỗi máy chủ khi tải lịch sử tin nhắn." });
   }
+});
+
+router.post("/upload", authMiddleware, uploadChatFile.single("file"), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ message: "Vui lòng chọn file để tải lên." });
+    }
+
+    const fileName = decodeMulterFileName(req.file.originalname);
+    const isImage = req.file.mimetype.startsWith("image/");
+    const folder = isImage ? "chat-app/messages/images" : "chat-app/messages/files";
+
+    const uploadResult = await new Promise((resolve, reject) => {
+      const stream = cloudinary.uploader.upload_stream(
+        {
+          folder,
+          resource_type: isImage ? "image" : "raw",
+          ...(isImage
+            ? {
+                transformation: [{ quality: "auto:good", fetch_format: "auto" }]
+              }
+            : {})
+        },
+        (error, result) => {
+          if (error) return reject(error);
+          return resolve(result);
+        }
+      );
+      stream.end(req.file.buffer);
+    });
+
+    return res.status(200).json({
+      fileUrl: uploadResult.secure_url,
+      fileType: isImage ? "image" : "file",
+      fileName
+    });
+  } catch (error) {
+    return res.status(500).json({ message: "Tải file lên thất bại." });
+  }
+});
+
+router.use((error, req, res, next) => {
+  if (error?.code === "LIMIT_FILE_SIZE") {
+    return res.status(400).json({ message: "Kích thước file tối đa là 15MB." });
+  }
+  if (error?.message === "File không hợp lệ.") {
+    return res.status(400).json({ message: error.message });
+  }
+  return next(error);
 });
 
 module.exports = router;
