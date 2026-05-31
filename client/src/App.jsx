@@ -27,7 +27,8 @@ function App() {
         }
       >
         <Route index element={<Navigate to="/chat" replace />} />
-        <Route path="chat/:userId?" element={<HomePage />} />
+        <Route path="chat/:userId?" element={<HomePage mode="chat" />} />
+        <Route path="group/:groupId?" element={<HomePage mode="group" />} />
         <Route path="friends" element={<FriendsPage />} />
         <Route path="discover" element={<DiscoverPage />} />
         <Route path="profile" element={<ProfilePage />} />

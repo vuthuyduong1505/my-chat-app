@@ -1,9 +1,18 @@
 const jwt = require("jsonwebtoken");
 const mongoose = require("mongoose");
 const { Server } = require("socket.io");
-const Message = require("./models/Message");
 const User = require("./models/User");
-const { normalizeMessagePayload } = require("./utils/messagePayload");
+const Group = require("./models/Group");
+const Message = require("./models/Message");
+const { normalizeMessagePayload, SENDER_PROFILE_FIELDS } = require("./utils/messagePayload");
+
+/** Tải sender đã populate để socket/API cùng cấu trúc (avatar, tên) */
+async function emitMessagePayload(doc, extra = {}) {
+  const populated = await Message.findById(doc._id)
+    .populate("sender", SENDER_PROFILE_FIELDS)
+    .lean();
+  return { ...normalizeMessagePayload(populated || doc), ...extra };
+}
 
 const RECALLED_PLACEHOLDER = "Tin nhắn đã bị thu hồi";
 
@@ -15,6 +24,75 @@ function chatRoomId(userIdA, userIdB) {
 
 function userRoomId(userId) {
   return `user:${String(userId)}`;
+}
+
+function groupRoomId(groupId) {
+  return `group:${String(groupId)}`;
+}
+
+async function joinAllGroupRooms(socket, userId) {
+  const groups = await Group.find({ members: userId }).select("_id").lean();
+  groups.forEach((g) => socket.join(groupRoomId(g._id)));
+}
+
+/** Tham chiếu io toàn cục — dùng khi tạo nhóm (HTTP) cần phát socket */
+let ioInstance = null;
+
+/**
+ * Join Room tự động khi có nhóm mới (báo cáo / đồng bộ realtime):
+ * 1. HTTP POST /api/groups tạo nhóm xong → gọi hàm này.
+ * 2. Với từng memberId: emit added_to_group vào phòng user:{memberId}
+ *    (mọi tab đang đăng nhập của thành viên đều nhận).
+ * 3. Đồng thời fetchSockets trong user:{memberId} và socket.join(group:{groupId})
+ *    — thành viên online được ghép phòng nhóm ngay trên server.
+ * 4. Client nhận added_to_group → emit join_group_chat (lớp bảo đảm thêm).
+ * Kết quả: nhận new_message nhóm realtime không cần F5 / reconnect.
+ */
+async function notifyMembersAddedToGroup(group, addedByUser) {
+  const io = ioInstance;
+  if (!io || !group) return;
+
+  const groupId = String(group._id || group.id);
+  const addedByName =
+    `${addedByUser?.firstName || ""} ${addedByUser?.lastName || ""}`.trim() ||
+    addedByUser?.email ||
+    "Ai đó";
+
+  const membersRaw = group.members || [];
+  const memberIds = membersRaw.map((m) =>
+    m && typeof m === "object" && (m._id || m.id) ? String(m._id || m.id) : String(m)
+  );
+
+  const groupPayload = {
+    _id: groupId,
+    name: group.name,
+    avatar: group.avatar || "",
+    memberCount: memberIds.length,
+    members: membersRaw
+  };
+
+  const payload = {
+    group: groupPayload,
+    addedBy: {
+      _id: String(addedByUser?._id || addedByUser?.id || ""),
+      firstName: addedByUser?.firstName || "",
+      lastName: addedByUser?.lastName || "",
+      email: addedByUser?.email || ""
+    },
+    addedByName
+  };
+
+  await Promise.all(
+    memberIds.map(async (memberId) => {
+      io.to(userRoomId(memberId)).emit("added_to_group", payload);
+      try {
+        const sockets = await io.in(userRoomId(memberId)).fetchSockets();
+        sockets.forEach((s) => s.join(groupRoomId(groupId)));
+      } catch {
+        /* ignore */
+      }
+    })
+  );
 }
 
 /** userId -> Set<socket.id> */
@@ -50,6 +128,7 @@ function attachSocketIO(httpServer) {
       credentials: true
     }
   });
+  ioInstance = io;
 
   const { register, unregister, getOnlineUserIds } = createSocketRegistry();
 
@@ -73,6 +152,7 @@ function attachSocketIO(httpServer) {
 
     // Mỗi user luôn ở phòng riêng để nhận tin nhắn realtime kể cả khi chưa mở khung chat với người gửi
     socket.join(userRoomId(userId));
+    joinAllGroupRooms(socket, userId).catch(() => {});
 
     socket.emit("online_users", getOnlineUserIds());
     socket.broadcast.emit("user_online", { userId });
@@ -95,12 +175,65 @@ function attachSocketIO(httpServer) {
       socket.leave(chatRoomId(userId, friendId));
     });
 
-    socket.on("send_message", async ({ receiverId, content, tempId, fileUrl, fileType, fileName }) => {
+    socket.on("refresh_group_rooms", () => {
+      joinAllGroupRooms(socket, userId).catch(() => {});
+    });
+
+    socket.on("join_group_chat", async ({ groupId }) => {
+      try {
+        if (!groupId || !mongoose.Types.ObjectId.isValid(groupId)) return;
+        const group = await Group.findById(groupId).select("members").lean();
+        if (!group) return;
+        const isMember = (group.members || []).some((id) => String(id) === String(userId));
+        if (!isMember) return;
+        socket.join(groupRoomId(groupId));
+      } catch {
+        /* ignore */
+      }
+    });
+
+    socket.on("leave_group_chat", ({ groupId }) => {
+      if (!groupId) return;
+      socket.leave(groupRoomId(groupId));
+    });
+
+    socket.on("send_message", async ({ receiverId, groupId, content, tempId, fileUrl, fileType, fileName }) => {
       try {
         const text = typeof content === "string" ? content.trim() : "";
         const attachmentUrl = typeof fileUrl === "string" ? fileUrl.trim() : "";
         const attachmentType = fileType === "image" ? "image" : attachmentUrl ? "file" : "";
         const attachmentName = typeof fileName === "string" ? fileName.trim() : "";
+
+        if (!text && !attachmentUrl) return;
+
+        /**
+         * Điều phối tin nhắn NHÓM qua Socket.io:
+         * 1. Client gửi send_message kèm groupId (không cần receiverId).
+         * 2. Server kiểm tra người gửi thuộc members của nhóm.
+         * 3. Lưu Message với groupId; mỗi thành viên đã join phòng group:{groupId} khi kết nối.
+         * 4. io.to(groupRoomId) phát new_message — mọi socket trong phòng nhận realtime.
+         */
+        if (groupId) {
+          if (!mongoose.Types.ObjectId.isValid(groupId)) return;
+          const group = await Group.findById(groupId).select("members").lean();
+          if (!group) return;
+          const isMember = (group.members || []).some((id) => String(id) === String(userId));
+          if (!isMember) return;
+
+          const doc = await Message.create({
+            sender: userId,
+            groupId,
+            content: text,
+            fileUrl: attachmentUrl,
+            fileType: attachmentType,
+            fileName: attachmentName
+          });
+
+          const payload = await emitMessagePayload(doc, tempId ? { tempId } : {});
+
+          io.to(groupRoomId(groupId)).emit("new_message", payload);
+          return;
+        }
 
         if (!receiverId || (!text && !attachmentUrl)) return;
         if (!mongoose.Types.ObjectId.isValid(receiverId)) return;
@@ -120,10 +253,7 @@ function attachSocketIO(httpServer) {
           fileName: attachmentName
         });
 
-        const payload = {
-          ...normalizeMessagePayload(doc),
-          ...(tempId ? { tempId } : {})
-        };
+        const payload = await emitMessagePayload(doc, tempId ? { tempId } : {});
 
         // Gửi qua phòng user để người nhận luôn nhận được tin (badge, toast) dù chưa mở khung chat đó
         io.to(userRoomId(receiverId)).emit("new_message", payload);
@@ -178,8 +308,10 @@ function attachSocketIO(httpServer) {
         if (!doc) return;
 
         const isSender = String(doc.sender) === String(userId);
-        const isParticipant =
-          String(doc.sender) === String(userId) || String(doc.receiver) === String(userId);
+        const isGroupMessage = Boolean(doc.groupId);
+        const isParticipant = isGroupMessage
+          ? await Group.exists({ _id: doc.groupId, members: userId })
+          : String(doc.sender) === String(userId) || String(doc.receiver) === String(userId);
         if (!isParticipant) return;
 
         if (mode === "everyone") {
@@ -197,9 +329,13 @@ function attachSocketIO(httpServer) {
         }
 
         await doc.save();
-        const payload = normalizeMessagePayload(doc);
-        io.to(userRoomId(doc.sender)).emit("message_updated", payload);
-        io.to(userRoomId(doc.receiver)).emit("message_updated", payload);
+        const payload = await emitMessagePayload(doc);
+        if (doc.groupId) {
+          io.to(groupRoomId(doc.groupId)).emit("message_updated", payload);
+        } else {
+          io.to(userRoomId(doc.sender)).emit("message_updated", payload);
+          io.to(userRoomId(doc.receiver)).emit("message_updated", payload);
+        }
       } catch {
         /* ignore */
       }
@@ -216,4 +352,4 @@ function attachSocketIO(httpServer) {
   return io;
 }
 
-module.exports = { attachSocketIO };
+module.exports = { attachSocketIO, notifyMembersAddedToGroup };

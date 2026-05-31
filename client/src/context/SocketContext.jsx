@@ -10,10 +10,14 @@ export function SocketProvider({ children }) {
   const [socket, setSocket] = useState(null);
   const [connected, setConnected] = useState(false);
   const [onlineUsers, setOnlineUsers] = useState(() => new Set());
-  /** ID người bạn đang mở khung chat — dùng để không tăng số chưa đọc khi đang xem cuộc trò chuyện đó */
+  /** ID bạn bè đang mở khung chat 1-1 */
   const [activeChatFriendId, setActiveChatFriendId] = useState(null);
-  /** Số tin chưa đọc theo từng bạn: { [userId]: count } */
+  /** ID nhóm đang mở khung chat nhóm */
+  const [activeChatGroupId, setActiveChatGroupId] = useState(null);
+  /** Tin chưa đọc theo bạn: { [userId]: count } */
   const [unreadCounts, setUnreadCounts] = useState({});
+  /** Tin chưa đọc theo nhóm: { [groupId]: count } */
+  const [groupUnreadCounts, setGroupUnreadCounts] = useState({});
 
   const currentUserId = useMemo(() => {
     if (user?.id) return String(user.id);
@@ -31,14 +35,29 @@ export function SocketProvider({ children }) {
   }, [user]);
 
   const activeChatFriendIdRef = useRef(activeChatFriendId);
+  const activeChatGroupIdRef = useRef(activeChatGroupId);
   useEffect(() => {
     activeChatFriendIdRef.current = activeChatFriendId;
   }, [activeChatFriendId]);
+  useEffect(() => {
+    activeChatGroupIdRef.current = activeChatGroupId;
+  }, [activeChatGroupId]);
 
   const markFriendAsRead = useCallback((friendId) => {
     if (!friendId) return;
     const key = String(friendId);
     setUnreadCounts((prev) => {
+      if (!prev[key]) return prev;
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
+  }, []);
+
+  const markGroupAsRead = useCallback((groupId) => {
+    if (!groupId) return;
+    const key = String(groupId);
+    setGroupUnreadCounts((prev) => {
       if (!prev[key]) return prev;
       const next = { ...prev };
       delete next[key];
@@ -129,13 +148,28 @@ export function SocketProvider({ children }) {
 
     const onNewMessage = (msg) => {
       const me = String(currentUserId);
-      const senderId = String(msg.sender);
-      const receiverId = String(msg.receiver);
+      const senderId = String(
+        msg.senderId ||
+          (msg.sender && typeof msg.sender === "object" ? msg.sender._id || msg.sender.id : msg.sender) ||
+          ""
+      );
 
-      // Chỉ xử lý tin gửi đến mình, bỏ qua tin do chính mình gửi (optimistic / echo)
+      if (msg.groupId) {
+        if (senderId === me) return;
+        const gid = String(msg.groupId);
+        const activeGroupId = activeChatGroupIdRef.current;
+        if (activeGroupId && gid === String(activeGroupId)) return;
+
+        setGroupUnreadCounts((prev) => ({
+          ...prev,
+          [gid]: (prev[gid] || 0) + 1
+        }));
+        return;
+      }
+
+      const receiverId = String(msg.receiver);
       if (senderId === me || receiverId !== me) return;
 
-      // Đang mở đúng cuộc chat với người gửi → coi như đã đọc, không tăng badge
       const activeId = activeChatFriendIdRef.current;
       if (activeId && senderId === String(activeId)) return;
 
@@ -145,9 +179,25 @@ export function SocketProvider({ children }) {
       }));
     };
 
+    /**
+     * Join Room tự động khi được thêm vào nhóm (phía client):
+     * Server đã phát added_to_group và có thể đã join phòng group:{id} trên socket server.
+     * Client vẫn emit join_group_chat để đảm bảo tab hiện tại vào đúng phòng,
+     * rồi báo HomePage tải lại danh sách nhóm — không cần reconnect hay F5.
+     */
+    const onAddedToGroup = (data) => {
+      const gid = data?.group?._id || data?.group?.id;
+      if (!gid) return;
+      socket.emit("join_group_chat", { groupId: String(gid) });
+      window.dispatchEvent(new CustomEvent("groups-updated"));
+    };
+
     socket.on("new_message", onNewMessage);
+    socket.on("added_to_group", onAddedToGroup);
+
     return () => {
       socket.off("new_message", onNewMessage);
+      socket.off("added_to_group", onAddedToGroup);
     };
   }, [socket, currentUserId]);
 
@@ -157,11 +207,25 @@ export function SocketProvider({ children }) {
       connected,
       onlineUsers,
       unreadCounts,
+      groupUnreadCounts,
       activeChatFriendId,
+      activeChatGroupId,
       setActiveChatFriendId,
-      markFriendAsRead
+      setActiveChatGroupId,
+      markFriendAsRead,
+      markGroupAsRead
     }),
-    [socket, connected, onlineUsers, unreadCounts, activeChatFriendId, markFriendAsRead]
+    [
+      socket,
+      connected,
+      onlineUsers,
+      unreadCounts,
+      groupUnreadCounts,
+      activeChatFriendId,
+      activeChatGroupId,
+      markFriendAsRead,
+      markGroupAsRead
+    ]
   );
 
   return (

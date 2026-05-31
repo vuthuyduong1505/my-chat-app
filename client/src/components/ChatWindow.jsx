@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { FileText, Loader2, MessageCircle, Paperclip, Plus, Send, X } from "lucide-react";
+import { FileText, Loader2, MessageCircle, Paperclip, Plus, Send, Users, X } from "lucide-react";
 import toast from "react-hot-toast";
 import api from "../api";
 import UserAvatar from "./UserAvatar";
@@ -205,14 +205,14 @@ function AttachmentPreviewStrip({ attachments, onRemove, onAddMore, disabled }) 
 
 const RECALLED_TEXT = "Tin nhắn đã bị thu hồi";
 
-function SeenReceipt({ friend }) {
-  const initial = (friend?.firstName || friend?.email || "?")[0]?.toUpperCase();
+function SeenReceipt({ user: peer }) {
+  const initial = (peer?.firstName || peer?.email || "?")[0]?.toUpperCase();
 
   return (
     <div className="mr-10 mt-px flex items-center justify-end gap-0.5 self-end">
-      {friend?.avatar ? (
+      {peer?.avatar ? (
         <img
-          src={friend.avatar}
+          src={peer.avatar}
           alt=""
           className="h-3 w-3 shrink-0 rounded-full object-cover ring-1 ring-[#00BFA5]/30"
         />
@@ -226,13 +226,62 @@ function SeenReceipt({ friend }) {
   );
 }
 
+function displayUserName(person) {
+  if (!person) return "Thành viên";
+  const name = `${person.firstName || ""} ${person.lastName || ""}`.trim();
+  return name || person.email || "Thành viên";
+}
+
+/** ID người gửi — sender có thể là string hoặc object đã populate */
+function getSenderId(m) {
+  if (m?.senderId) return String(m.senderId);
+  const raw = m?.sender;
+  if (!raw) return "";
+  if (typeof raw === "object") return String(raw._id || raw.id || "");
+  return String(raw);
+}
+
+function isMessageMine(m, currentUserId) {
+  if (!m || !currentUserId) return false;
+  const raw = m.sender;
+  const senderKey = (raw && typeof raw === "object" ? raw._id || raw.id : raw) ?? m.senderId;
+  return String(senderKey) === String(currentUserId);
+}
+
+function resolvePeerUser(m, { user, friend, memberMap, currentUserId }) {
+  if (isMessageMine(m, currentUserId)) return user;
+  if (m.sender && typeof m.sender === "object" && (m.sender._id || m.sender.firstName)) {
+    return m.sender;
+  }
+  const id = getSenderId(m);
+  if (memberMap && id) return memberMap.get(id) || friend;
+  return friend;
+}
+
+/** Nhãn tên phía trên bong bóng tin nhóm (ưu tiên firstName từ sender populate) */
+function groupSenderLabel(m, peerUser) {
+  if (m.senderName) return m.senderName;
+  if (m.sender && typeof m.sender === "object" && m.sender.firstName) {
+    const last = (m.sender.lastName || "").trim();
+    return last ? `${m.sender.firstName} ${last}` : m.sender.firstName;
+  }
+  if (peerUser?.firstName) {
+    const last = (peerUser.lastName || "").trim();
+    return last ? `${peerUser.firstName} ${last}` : peerUser.firstName;
+  }
+  return displayUserName(peerUser);
+}
+
 function MessageRow({
   message,
   isMine,
   hoverTime,
   onOpenImage,
   user,
-  friend,
+  peerUser,
+  senderLabel,
+  isGroupChat,
+  readReceiptUser,
   onRecall,
   onDeleteSelf,
   showSeenReceipt
@@ -289,8 +338,8 @@ function MessageRow({
 
     if (isMine) {
       return (
-        <div className="ml-auto flex w-full min-w-0 max-w-[min(92%,480px)] flex-col items-end">
-          <div className="flex items-end justify-end gap-2">
+        <div className="flex min-w-0 max-w-[min(92%,480px)] flex-col items-end">
+          <div className="flex flex-row items-end justify-end gap-2">
             {hoverTime ? (
               <span className="shrink-0 self-end pb-1 text-[10px] leading-none tabular-nums text-primary/35 opacity-0 transition-opacity duration-150 group-hover/message-row:opacity-100">
                 {hoverTime}
@@ -299,14 +348,14 @@ function MessageRow({
             {recalledBubble}
             <UserAvatar user={user} size="xs" className="shrink-0 ring-1 ring-primary/15" alt="" />
           </div>
-          {showSeenReceipt ? <SeenReceipt friend={friend} /> : null}
+          {showSeenReceipt ? <SeenReceipt user={readReceiptUser} /> : null}
         </div>
       );
     }
 
     return (
-      <div className="flex w-full min-w-0 max-w-[min(92%,480px)] items-end justify-start gap-2">
-        <UserAvatar user={friend} size="xs" className="shrink-0 ring-1 ring-primary/15" alt="" />
+      <div className="flex min-w-0 max-w-[min(92%,480px)] flex-row items-end justify-start gap-2">
+        <UserAvatar user={peerUser} size="xs" className="shrink-0 ring-1 ring-primary/15" alt="" />
         {recalledBubble}
         {hoverTime ? (
           <span className="shrink-0 self-end pb-1 text-[10px] leading-none tabular-nums text-primary/35 opacity-0 transition-opacity duration-150 group-hover/message-row:opacity-100">
@@ -331,7 +380,7 @@ function MessageRow({
   const avatar = isMine ? (
     <UserAvatar user={user} size="xs" className="shrink-0 ring-1 ring-primary/15" alt="" />
   ) : (
-    <UserAvatar user={friend} size="xs" className="shrink-0 ring-1 ring-primary/15" alt="" />
+    <UserAvatar user={peerUser} size="xs" className="shrink-0 ring-1 ring-primary/15" alt="" />
   );
 
   const hoverTimeAside = hoverTime ? (
@@ -348,6 +397,9 @@ function MessageRow({
       onTouchEnd={handleTouchEnd}
       onTouchCancel={handleTouchEnd}
     >
+      {!isMine && isGroupChat && senderLabel ? (
+        <p className="mb-0.5 max-w-full truncate px-1 text-[10px] font-medium text-[#003B44]/55">{senderLabel}</p>
+      ) : null}
       {hasImage ? (
         <button
           type="button"
@@ -412,13 +464,13 @@ function MessageRow({
   if (isMine) {
     return (
       <>
-        <div className="ml-auto flex w-full min-w-0 max-w-[min(92%,480px)] flex-col items-end">
-          <div className="flex items-end justify-end gap-2">
+        <div className="flex min-w-0 max-w-[min(92%,480px)] flex-col items-end">
+          <div className="flex flex-row items-end justify-end gap-2">
             {hoverTimeAside}
             {contentColumn}
             {avatar}
           </div>
-          {showSeenReceipt ? <SeenReceipt friend={friend} /> : null}
+          {showSeenReceipt ? <SeenReceipt user={readReceiptUser} /> : null}
         </div>
         {actionMenuEl}
       </>
@@ -427,7 +479,7 @@ function MessageRow({
 
   return (
     <>
-      <div className="flex w-full min-w-0 max-w-[min(92%,480px)] items-end justify-start gap-2">
+      <div className="flex min-w-0 max-w-[min(92%,480px)] flex-row items-end justify-start gap-2">
         {avatar}
         {contentColumn}
         {hoverTimeAside}
@@ -437,9 +489,10 @@ function MessageRow({
   );
 }
 
-function ChatWindow({ friend, currentUserId }) {
+function ChatWindow({ friend, group, currentUserId }) {
   const { user } = useAuth();
   const { socket, connected, onlineUsers } = useSocket();
+  const isGroupChat = Boolean(group);
   const [messages, setMessages] = useState([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
   const [draft, setDraft] = useState("");
@@ -454,33 +507,53 @@ function ChatWindow({ friend, currentUserId }) {
     attachmentsRef.current = attachments;
   }, [attachments]);
 
-  const friendId = useMemo(() => {
+  const chatId = useMemo(() => {
+    if (isGroupChat) return group ? String(group._id || group.id || "") : null;
     if (!friend) return null;
     return String(friend._id || friend.id || "");
-  }, [friend]);
+  }, [friend, group, isGroupChat]);
 
-  const friendName = useMemo(() => {
-    if (!friend) return "";
+  const memberMap = useMemo(() => {
+    const map = new Map();
+    (group?.members || []).forEach((member) => {
+      map.set(String(member._id || member.id), member);
+    });
+    return map;
+  }, [group]);
+
+  const chatTitle = useMemo(() => {
+    if (isGroupChat) return group?.name || "Nhóm chat";
     const n = `${friend?.firstName || ""} ${friend?.lastName || ""}`.trim();
     return n || friend?.email || "Bạn bè";
-  }, [friend]);
+  }, [friend, group, isGroupChat]);
+
+  const chatSubtitle = useMemo(() => {
+    if (isGroupChat) {
+      const count = group?.memberCount || group?.members?.length || 0;
+      return `${count} thành viên`;
+    }
+    const fid = chatId;
+    const online = fid && (onlineUsers instanceof Set ? onlineUsers : new Set()).has(String(fid));
+    if (!connected) return "Đang kết nối máy chủ…";
+    return online ? "Đang hoạt động" : "Offline";
+  }, [isGroupChat, group, chatId, connected, onlineUsers]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
   useEffect(() => {
-    if (!friendId || loadingHistory) return undefined;
+    if (!chatId || loadingHistory) return undefined;
     const id = requestAnimationFrame(() => {
       requestAnimationFrame(() => {
         bottomRef.current?.scrollIntoView({ behavior: "auto" });
       });
     });
     return () => cancelAnimationFrame(id);
-  }, [friendId, loadingHistory]);
+  }, [chatId, loadingHistory]);
 
   useEffect(() => {
-    if (!friendId) {
+    if (!chatId) {
       setMessages([]);
       return undefined;
     }
@@ -489,7 +562,8 @@ function ChatWindow({ friend, currentUserId }) {
     const load = async () => {
       setLoadingHistory(true);
       try {
-        const res = await api.get(`/chat/${friendId}`);
+        const url = isGroupChat ? `/groups/${chatId}/messages` : `/chat/${chatId}`;
+        const res = await api.get(url);
         if (!cancelled) setMessages(res.data?.messages || []);
       } catch {
         if (!cancelled) setMessages([]);
@@ -502,13 +576,17 @@ function ChatWindow({ friend, currentUserId }) {
     return () => {
       cancelled = true;
     };
-  }, [friendId]);
+  }, [chatId, isGroupChat]);
 
   useEffect(() => {
-    if (!socket || !friendId) return undefined;
+    if (!socket || !chatId) return undefined;
 
     const join = () => {
-      socket.emit("join_chat", { friendId });
+      if (isGroupChat) {
+        socket.emit("join_group_chat", { groupId: chatId });
+      } else {
+        socket.emit("join_chat", { friendId: chatId });
+      }
     };
 
     join();
@@ -516,9 +594,13 @@ function ChatWindow({ friend, currentUserId }) {
 
     return () => {
       socket.off("connect", join);
-      socket.emit("leave_chat", { friendId });
+      if (isGroupChat) {
+        socket.emit("leave_group_chat", { groupId: chatId });
+      } else {
+        socket.emit("leave_chat", { friendId: chatId });
+      }
     };
-  }, [socket, friendId]);
+  }, [socket, chatId, isGroupChat]);
 
   /**
    * Cơ chế "Đã xem" (báo cáo):
@@ -528,23 +610,25 @@ function ChatWindow({ friend, currentUserId }) {
    * 4. Người gửi hiển thị "Đã xem" dưới tin nhắn cuối cùng của mình nếu tin đó đã isRead.
    */
   const markAsRead = useCallback(() => {
-    if (!socket?.connected || !friendId) return;
-    socket.emit("mark_as_read", { friendId });
-  }, [socket, friendId]);
+    if (isGroupChat || !socket?.connected || !chatId) return;
+    socket.emit("mark_as_read", { friendId: chatId });
+  }, [socket, chatId, isGroupChat]);
 
   useEffect(() => {
-    if (!friendId || loadingHistory) return;
+    if (isGroupChat || !chatId || loadingHistory) return;
     markAsRead();
-  }, [friendId, loadingHistory, markAsRead]);
+  }, [chatId, loadingHistory, markAsRead, isGroupChat]);
 
   useEffect(() => {
-    if (!socket || !friendId || !currentUserId) return undefined;
+    if (!socket || !chatId || !currentUserId) return undefined;
 
     const onNew = (msg) => {
       const me = String(currentUserId);
-      const fid = String(friendId);
-      const inConv =
-        (msg.sender === me && msg.receiver === fid) || (msg.sender === fid && msg.receiver === me);
+      const msgSenderId = getSenderId(msg);
+      const inConv = isGroupChat
+        ? String(msg.groupId) === String(chatId)
+        : (msgSenderId === me && msg.receiver === String(chatId)) ||
+          (msgSenderId === String(chatId) && msg.receiver === me);
       if (!inConv) return;
 
       setMessages((prev) => {
@@ -560,26 +644,28 @@ function ChatWindow({ friend, currentUserId }) {
         return [...prev, msg];
       });
 
-      if (msg.sender === fid) {
+      if (!isGroupChat && getSenderId(msg) === String(chatId)) {
         markAsRead();
       }
     };
 
     const onMessagesRead = ({ readBy }) => {
+      if (isGroupChat) return;
       const me = String(currentUserId);
-      const fid = String(friendId);
+      const fid = String(chatId);
       if (String(readBy) !== fid) return;
       setMessages((prev) =>
-        prev.map((m) => (String(m.sender) === me && String(m.receiver) === fid ? { ...m, isRead: true } : m))
+        prev.map((m) => (getSenderId(m) === me && String(m.receiver) === fid ? { ...m, isRead: true } : m))
       );
     };
 
     const onMessageUpdated = (updated) => {
       const me = String(currentUserId);
-      const fid = String(friendId);
-      const inConv =
-        (updated.sender === me && updated.receiver === fid) ||
-        (updated.receiver === me && updated.sender === fid);
+      const updatedSenderId = getSenderId(updated);
+      const inConv = isGroupChat
+        ? String(updated.groupId) === String(chatId)
+        : (updatedSenderId === me && updated.receiver === String(chatId)) ||
+          (updated.receiver === me && updatedSenderId === String(chatId));
       if (!inConv) return;
 
       if ((updated.hiddenFor || []).map(String).includes(me)) {
@@ -600,7 +686,7 @@ function ChatWindow({ friend, currentUserId }) {
       socket.off("messages_read", onMessagesRead);
       socket.off("message_updated", onMessageUpdated);
     };
-  }, [socket, friendId, currentUserId, markAsRead]);
+  }, [socket, chatId, currentUserId, markAsRead, isGroupChat]);
 
   const revokePreview = (item) => {
     if (item?.previewUrl) URL.revokeObjectURL(item.previewUrl);
@@ -645,11 +731,23 @@ function ChatWindow({ friend, currentUserId }) {
 
   const emitChatMessage = ({ content = "", fileUrl = "", fileType = "", fileName = "" }) => {
     const tempId = `t-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+    const meId = String(currentUserId);
+    const senderProfile = user
+      ? {
+          _id: meId,
+          firstName: user.firstName || "",
+          lastName: user.lastName || "",
+          email: user.email || "",
+          avatar: user.avatar || ""
+        }
+      : meId;
     const optimistic = {
       _id: tempId,
       tempId,
-      sender: String(currentUserId),
-      receiver: friendId,
+      sender: senderProfile,
+      senderId: meId,
+      receiver: isGroupChat ? "" : chatId,
+      groupId: isGroupChat ? chatId : "",
       content,
       fileUrl,
       fileType,
@@ -657,13 +755,14 @@ function ChatWindow({ friend, currentUserId }) {
       isRead: false,
       isRecalled: false,
       hiddenFor: [],
+      senderName: isGroupChat ? displayUserName(user) : "",
       createdAt: new Date().toISOString(),
       pending: true
     };
 
     setMessages((prev) => [...prev, optimistic]);
     socket.emit("send_message", {
-      receiverId: friendId,
+      ...(isGroupChat ? { groupId: chatId } : { receiverId: chatId }),
       content,
       fileUrl,
       fileType,
@@ -676,7 +775,7 @@ function ChatWindow({ friend, currentUserId }) {
     const text = draft.trim();
     const queue = attachments.filter((item) => item.status === "queued" || item.status === "error");
 
-    if ((!text && queue.length === 0) || sending || !socket?.connected || !friendId || !currentUserId) return;
+    if ((!text && queue.length === 0) || sending || !socket?.connected || !chatId || !currentUserId) return;
 
     setSending(true);
     setDraft("");
@@ -753,7 +852,7 @@ function ChatWindow({ friend, currentUserId }) {
     const me = String(currentUserId);
     for (let i = visibleMessages.length - 1; i >= 0; i -= 1) {
       const m = visibleMessages[i];
-      if (String(m.sender) === me && !m.isRecalled && !m.pending) return String(m._id);
+      if (isMessageMine(m, me) && !m.isRecalled && !m.pending) return String(m._id);
     }
     return null;
   }, [visibleMessages, currentUserId]);
@@ -762,8 +861,6 @@ function ChatWindow({ friend, currentUserId }) {
     () => (onlineUsers instanceof Set ? onlineUsers : new Set(Array.isArray(onlineUsers) ? onlineUsers.map(String) : [])),
     [onlineUsers]
   );
-  const friendIsOnline = Boolean(friendId && onlineUserSet.has(String(friendId)));
-
   useEffect(() => {
     setDraft("");
     setSending(false);
@@ -771,7 +868,7 @@ function ChatWindow({ friend, currentUserId }) {
       prev.forEach(revokePreview);
       return [];
     });
-  }, [friendId]);
+  }, [chatId]);
 
   useEffect(
     () => () => {
@@ -780,7 +877,7 @@ function ChatWindow({ friend, currentUserId }) {
     []
   );
 
-  if (!friend || !friendId) {
+  if (!chatId || (!isGroupChat && !friend) || (isGroupChat && !group)) {
     return (
       <div className="relative flex flex-1 flex-col overflow-hidden rounded-2xl border border-primary/8 bg-gradient-to-br from-accent via-light to-accent/90 p-6 shadow-inner">
         <div className="pointer-events-none absolute inset-0 rounded-2xl bg-[radial-gradient(ellipse_at_top_right,rgba(0,191,165,0.12),transparent_50%)]" />
@@ -789,7 +886,7 @@ function ChatWindow({ friend, currentUserId }) {
             <MessageCircle size={34} strokeWidth={1.75} />
           </div>
           <h2 className="text-xl font-bold tracking-tight text-primary md:text-2xl">
-            Chọn một người bạn để bắt đầu trò chuyện
+            {isGroupChat ? "Chọn một nhóm để bắt đầu trò chuyện" : "Chọn một người bạn để bắt đầu trò chuyện"}
           </h2>
         </div>
       </div>
@@ -801,16 +898,20 @@ function ChatWindow({ friend, currentUserId }) {
       <div className="pointer-events-none absolute inset-0 rounded-2xl bg-[radial-gradient(ellipse_at_top_right,rgba(0,191,165,0.08),transparent_55%)]" />
 
       <header className="relative z-10 flex shrink-0 items-center gap-3 border-b border-primary/10 bg-light/95 px-4 py-3 backdrop-blur-sm md:px-5">
-        <UserAvatar user={friend} size="md" className="ring-2 ring-secondary/25" alt="" />
+        {isGroupChat ? (
+          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#003B44]/10 text-[#00BFA5] ring-2 ring-[#00BFA5]/25">
+            {group?.avatar ? (
+              <img src={group.avatar} alt="" className="h-full w-full rounded-full object-cover" />
+            ) : (
+              <Users size={22} />
+            )}
+          </div>
+        ) : (
+          <UserAvatar user={friend} size="md" className="ring-2 ring-secondary/25" alt="" />
+        )}
         <div className="min-w-0 flex-1">
-          <p className="truncate font-semibold text-primary">{friendName}</p>
-          <p className="truncate text-xs text-primary/50">
-            {!connected
-              ? "Đang kết nối máy chủ…"
-              : friendIsOnline
-                ? "Đang hoạt động"
-                : "Offline"}
-          </p>
+          <p className="truncate font-semibold text-[#003B44]">{chatTitle}</p>
+          <p className="truncate text-xs text-[#003B44]/50">{chatSubtitle}</p>
         </div>
       </header>
 
@@ -824,7 +925,7 @@ function ChatWindow({ friend, currentUserId }) {
             <p className="py-8 text-center text-sm text-primary/45">Chưa có tin nhắn nào</p>
           ) : (
             visibleMessages.map((m, index) => {
-              const isMine = String(m.sender) === String(currentUserId);
+              const isMine = isMessageMine(m, currentUserId);
               const previousMessage = index > 0 ? visibleMessages[index - 1] : null;
               const currentDate = new Date(m.createdAt);
               const previousDate = previousMessage ? new Date(previousMessage.createdAt) : null;
@@ -841,25 +942,36 @@ function ChatWindow({ friend, currentUserId }) {
               const shouldShowTimestampSeparator = isFirstMessage || isNewDay || isOverThirtyMinutes;
               const separatorText = formatVietnameseChatTime(m.createdAt);
               const hoverTime = formatHoverTime(m.createdAt);
+              const peerUser = resolvePeerUser(m, { user, friend, memberMap, currentUserId });
+              const senderLabel = !isMine && isGroupChat ? groupSenderLabel(m, peerUser) : null;
 
               return (
-                <div key={String(m._id)}>
+                <div key={String(m._id)} className="w-full">
                   {shouldShowTimestampSeparator && separatorText ? (
                     <div className="my-4 text-center text-[11px] text-primary/40">{separatorText}</div>
                   ) : null}
 
-                  <div className={`group/message-row flex w-full ${isMine ? "justify-end" : "justify-start"}`}>
+                  <div
+                    className={`group/message-row flex w-full ${isMine ? "justify-end" : "justify-start"}`}
+                  >
                     <MessageRow
                       message={m}
                       isMine={isMine}
                       hoverTime={hoverTime}
                       onOpenImage={setLightboxUrl}
                       user={user}
-                      friend={friend}
+                      peerUser={peerUser}
+                      senderLabel={senderLabel}
+                      isGroupChat={isGroupChat}
+                      readReceiptUser={!isGroupChat ? friend : null}
                       onRecall={handleRecallMessage}
                       onDeleteSelf={handleDeleteMessageForSelf}
                       showSeenReceipt={
-                        isMine && lastMyMessageId === String(m._id) && Boolean(m.isRead) && !m.pending
+                        !isGroupChat &&
+                        isMine &&
+                        lastMyMessageId === String(m._id) &&
+                        Boolean(m.isRead) &&
+                        !m.pending
                       }
                     />
                   </div>

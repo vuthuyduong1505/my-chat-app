@@ -8,9 +8,13 @@ const messageSchema = new mongoose.Schema(
       required: true
     },
     receiver: {
-      type: mongoose.Schema.Types.ObjectId, //ID của người nhận
-      ref: "User", //Liên kết với bảng User
-      required: true
+      type: mongoose.Schema.Types.ObjectId, //ID của người nhận (chat 1-1)
+      ref: "User"
+    },
+    groupId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Group",
+      default: null
     },
     content: {
       type: String, //Nội dung tin nhắn
@@ -54,6 +58,11 @@ const messageSchema = new mongoose.Schema(
     timestamps: true //Thời gian tạo và cập nhật
   }
 );
+
+messageSchema.path("receiver").validate(function validateReceiver(receiver) {
+  if (this.groupId) return true;
+  return Boolean(receiver);
+}, "Tin nhắn 1-1 phải có người nhận.");
 
 messageSchema.path("content").validate(function validateContentOrFile(content) {
   if (this.isRecalled) return true;

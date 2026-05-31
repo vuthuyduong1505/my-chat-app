@@ -5,6 +5,7 @@ const cors = require("cors");
 const mongoose = require("mongoose");
 const authRoutes = require("./routes/auth");
 const chatRoutes = require("./routes/chat");
+const groupsRoutes = require("./routes/groups");
 const usersRoutes = require("./routes/users");
 const { attachSocketIO } = require("./socket");
 
@@ -30,6 +31,7 @@ app.get("/api/health", (req, res) => {
 //Định nghĩa các route cho các API
 app.use("/api/auth", authRoutes);
 app.use("/api/chat", chatRoutes);
+app.use("/api/groups", groupsRoutes);
 app.use("/api/users", usersRoutes);
 
 attachSocketIO(httpServer);

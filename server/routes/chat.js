@@ -33,9 +33,14 @@ router.get("/:friendId", authMiddleware, async (req, res) => {
     }
 
     const messages = await Message.find({
-      $or: [
-        { sender: me, receiver: friendId },
-        { sender: friendId, receiver: me }
+      $and: [
+        {
+          $or: [
+            { sender: me, receiver: friendId },
+            { sender: friendId, receiver: me }
+          ]
+        },
+        { $or: [{ groupId: null }, { groupId: { $exists: false } }] }
       ]
     })
       .sort({ createdAt: 1 })
