@@ -1,14 +1,50 @@
-import { createContext, useContext, useEffect, useMemo, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { io } from "socket.io-client";
+import GlobalMessageNotifier from "../components/GlobalMessageNotifier";
 import { useAuth } from "./AuthContext";
 
 const SocketContext = createContext(null);
 
 export function SocketProvider({ children }) {
-  const { token, isAuthenticated } = useAuth();
+  const { token, isAuthenticated, user } = useAuth();
   const [socket, setSocket] = useState(null);
   const [connected, setConnected] = useState(false);
   const [onlineUsers, setOnlineUsers] = useState(() => new Set());
+  /** ID người bạn đang mở khung chat — dùng để không tăng số chưa đọc khi đang xem cuộc trò chuyện đó */
+  const [activeChatFriendId, setActiveChatFriendId] = useState(null);
+  /** Số tin chưa đọc theo từng bạn: { [userId]: count } */
+  const [unreadCounts, setUnreadCounts] = useState({});
+
+  const currentUserId = useMemo(() => {
+    if (user?.id) return String(user.id);
+    if (user?._id) return String(user._id);
+    try {
+      const raw = localStorage.getItem("auth_user");
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        return String(parsed?.id || parsed?._id || "");
+      }
+    } catch {
+      /* ignore */
+    }
+    return "";
+  }, [user]);
+
+  const activeChatFriendIdRef = useRef(activeChatFriendId);
+  useEffect(() => {
+    activeChatFriendIdRef.current = activeChatFriendId;
+  }, [activeChatFriendId]);
+
+  const markFriendAsRead = useCallback((friendId) => {
+    if (!friendId) return;
+    const key = String(friendId);
+    setUnreadCounts((prev) => {
+      if (!prev[key]) return prev;
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
+  }, []);
 
   useEffect(() => {
     if (!isAuthenticated || !token) {
@@ -88,9 +124,52 @@ export function SocketProvider({ children }) {
     };
   }, [socket]);
 
-  const value = useMemo(() => ({ socket, connected, onlineUsers }), [socket, connected, onlineUsers]);
+  useEffect(() => {
+    if (!socket || !currentUserId) return undefined;
 
-  return <SocketContext.Provider value={value}>{children}</SocketContext.Provider>;
+    const onNewMessage = (msg) => {
+      const me = String(currentUserId);
+      const senderId = String(msg.sender);
+      const receiverId = String(msg.receiver);
+
+      // Chỉ xử lý tin gửi đến mình, bỏ qua tin do chính mình gửi (optimistic / echo)
+      if (senderId === me || receiverId !== me) return;
+
+      // Đang mở đúng cuộc chat với người gửi → coi như đã đọc, không tăng badge
+      const activeId = activeChatFriendIdRef.current;
+      if (activeId && senderId === String(activeId)) return;
+
+      setUnreadCounts((prev) => ({
+        ...prev,
+        [senderId]: (prev[senderId] || 0) + 1
+      }));
+    };
+
+    socket.on("new_message", onNewMessage);
+    return () => {
+      socket.off("new_message", onNewMessage);
+    };
+  }, [socket, currentUserId]);
+
+  const value = useMemo(
+    () => ({
+      socket,
+      connected,
+      onlineUsers,
+      unreadCounts,
+      activeChatFriendId,
+      setActiveChatFriendId,
+      markFriendAsRead
+    }),
+    [socket, connected, onlineUsers, unreadCounts, activeChatFriendId, markFriendAsRead]
+  );
+
+  return (
+    <SocketContext.Provider value={value}>
+      <GlobalMessageNotifier />
+      {children}
+    </SocketContext.Provider>
+  );
 }
 
 export function useSocket() {

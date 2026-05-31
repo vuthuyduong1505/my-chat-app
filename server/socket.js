@@ -10,6 +10,10 @@ function chatRoomId(userIdA, userIdB) {
   return a < b ? `chat:${a}:${b}` : `chat:${b}:${a}`;
 }
 
+function userRoomId(userId) {
+  return `user:${String(userId)}`;
+}
+
 /** userId -> Set<socket.id> */
 function createSocketRegistry() {
   const userIdToSockets = new Map();
@@ -63,6 +67,9 @@ function attachSocketIO(httpServer) {
   io.on("connection", (socket) => {
     const userId = socket.userId;
     register(userId, socket.id);
+
+    // Mỗi user luôn ở phòng riêng để nhận tin nhắn realtime kể cả khi chưa mở khung chat với người gửi
+    socket.join(userRoomId(userId));
 
     socket.emit("online_users", getOnlineUserIds());
     socket.broadcast.emit("user_online", { userId });
@@ -123,8 +130,9 @@ function attachSocketIO(httpServer) {
           ...(tempId ? { tempId } : {})
         };
 
-        const room = chatRoomId(userId, receiverId);
-        io.to(room).emit("new_message", payload);
+        // Gửi qua phòng user để người nhận luôn nhận được tin (badge, toast) dù chưa mở khung chat đó
+        io.to(userRoomId(receiverId)).emit("new_message", payload);
+        io.to(userRoomId(userId)).emit("new_message", payload);
       } catch {
         /* ignore */
       }

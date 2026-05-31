@@ -14,7 +14,7 @@ import api from "../api";
 import UserAvatar from "../components/UserAvatar";
 
 const navItems = [
-  { to: "/", end: true, label: "Trò chuyện", icon: MessageSquare },
+  { to: "/chat", end: false, label: "Trò chuyện", icon: MessageSquare },
   { to: "/friends", end: false, label: "Bạn bè", icon: Users },
   { to: "/discover", end: false, label: "Khám phá", icon: Search },
   { to: "/profile", end: false, label: "Hồ sơ", icon: UserCircle }
