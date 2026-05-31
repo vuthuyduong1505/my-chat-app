@@ -4,6 +4,7 @@ const Message = require("../models/Message");
 const User = require("../models/User");
 const Group = require("../models/Group");
 const authMiddleware = require("../middleware/authMiddleware");
+const { getCallingName } = require("../utils/callingName");
 
 const router = express.Router();
 const memberFields = "firstName lastName email avatar";
@@ -34,9 +35,9 @@ function buildLastMessagePreview(msg, me, friendsById, groupMembersBySender) {
 
   if (!isMe) {
     const friend = friendsById.get(sid);
-    if (friend?.firstName) label = friend.firstName;
-    else if (groupMembersBySender?.get(sid)?.firstName) {
-      label = groupMembersBySender.get(sid).firstName;
+    if (friend) label = getCallingName(friend) || "Thành viên";
+    else if (groupMembersBySender?.get(sid)) {
+      label = getCallingName(groupMembersBySender.get(sid)) || "Thành viên";
     } else label = "Thành viên";
   }
 

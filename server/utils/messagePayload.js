@@ -57,6 +57,22 @@ function normalizeReplyTo(rawReply) {
   return { _id: String(rawReply) };
 }
 
+function normalizeSeenBy(rawList) {
+  return (rawList || []).map((entry) => {
+    if (entry && typeof entry === "object" && (entry._id || entry.id)) {
+      const id = String(entry._id || entry.id);
+      return {
+        _id: id,
+        firstName: entry.firstName || "",
+        lastName: entry.lastName || "",
+        email: entry.email || "",
+        avatar: entry.avatar || ""
+      };
+    }
+    return { _id: String(entry) };
+  });
+}
+
 function normalizeMessagePayload(doc) {
   if (!doc) return null;
 
@@ -75,6 +91,7 @@ function normalizeMessagePayload(doc) {
     fileType: doc.fileType || "",
     fileName: doc.fileName || "",
     isRead: Boolean(doc.isRead),
+    seenBy: normalizeSeenBy(doc.seenBy),
     isRecalled: Boolean(doc.isRecalled),
     hiddenFor: (doc.hiddenFor || []).map(String),
     replyTo,
@@ -87,6 +104,7 @@ function normalizeMessagePayload(doc) {
 
 module.exports = {
   normalizeMessagePayload,
+  normalizeSeenBy,
   SENDER_PROFILE_FIELDS,
   REPLY_TO_POPULATE,
   senderDisplayName,

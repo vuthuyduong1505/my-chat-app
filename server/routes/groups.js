@@ -113,6 +113,7 @@ router.get("/:groupId/messages", authMiddleware, async (req, res) => {
     const messages = await Message.find({ groupId })
       .sort({ createdAt: 1 })
       .populate("sender", memberFields)
+      .populate("seenBy", memberFields)
       .populate(REPLY_TO_POPULATE)
       .lean();
 

@@ -14,6 +14,7 @@ const {
 async function emitMessagePayload(doc, extra = {}) {
   const populated = await Message.findById(doc._id)
     .populate("sender", SENDER_PROFILE_FIELDS)
+    .populate("seenBy", SENDER_PROFILE_FIELDS)
     .populate(REPLY_TO_POPULATE)
     .lean();
   return { ...normalizeMessagePayload(populated || doc), ...extra };
@@ -308,15 +309,64 @@ function attachSocketIO(httpServer) {
 
     /**
      * Cơ chế "Đã xem":
-     * - Người NHẬN (reader) mở khung chat hoặc đang xem chat → emit mark_as_read({ friendId: người gửi }).
-     * - Server đánh dấu isRead=true cho mọi tin do friendId gửi tới reader (sender=friend, receiver=reader).
-     * - Phát messages_read tới người gửi để họ hiển thị "Đã xem" dưới tin cuối cùng của mình.
+     * - DM: mark_as_read({ friendId }) → isRead=true, phát messages_read.
+     * - Nhóm: mark_as_read({ groupId }) → thêm reader vào seenBy mọi tin chưa xem,
+     *   phát group_message_seen kèm messageIds + avatar người đọc.
      */
-    socket.on("mark_as_read", async ({ friendId }) => {
+    socket.on("mark_as_read", async ({ friendId, groupId }) => {
       try {
+        const readerId = userId;
+
+        if (groupId) {
+          if (!mongoose.Types.ObjectId.isValid(groupId)) return;
+
+          const group = await Group.findById(groupId).select("members").lean();
+          if (!group) return;
+          const isMember = (group.members || []).some((id) => String(id) === String(readerId));
+          if (!isMember) return;
+
+          const unread = await Message.find({
+            groupId,
+            sender: { $ne: readerId },
+            isRecalled: false,
+            seenBy: { $ne: readerId },
+            hiddenFor: { $nin: [readerId] }
+          })
+            .select("_id")
+            .lean();
+
+          if (!unread.length) return;
+
+          await Message.updateMany(
+            { _id: { $in: unread.map((m) => m._id) } },
+            { $addToSet: { seenBy: readerId } }
+          );
+
+          const reader = await User.findById(readerId).select(SENDER_PROFILE_FIELDS).lean();
+          const seenPayload = {
+            groupId: String(groupId),
+            userId: String(readerId),
+            user: reader
+              ? {
+                  _id: String(reader._id),
+                  firstName: reader.firstName || "",
+                  lastName: reader.lastName || "",
+                  email: reader.email || "",
+                  avatar: reader.avatar || ""
+                }
+              : { _id: String(readerId) },
+            messageIds: unread.map((m) => String(m._id))
+          };
+
+          io.to(groupRoomId(groupId)).emit("group_message_seen", seenPayload);
+          (group.members || []).forEach((memberId) => {
+            io.to(userRoomId(memberId)).emit("group_message_seen", seenPayload);
+          });
+          return;
+        }
+
         if (!friendId || !mongoose.Types.ObjectId.isValid(friendId)) return;
 
-        const readerId = userId;
         const user = await User.findById(readerId).select("friends").lean();
         if (!user) return;
         const isFriend = (user.friends || []).some((id) => String(id) === String(friendId));

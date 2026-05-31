@@ -3,6 +3,7 @@ import { FileText, Loader2, MessageCircle, MoreVertical, Paperclip, Plus, Reply,
 import toast from "react-hot-toast";
 import api from "../api";
 import UserAvatar from "./UserAvatar";
+import { getCallingName, getCallingNameFromFullName } from "../utils/displayName";
 import { useAuth } from "../context/AuthContext";
 import { useSocket } from "../context/SocketContext";
 
@@ -224,6 +225,103 @@ function SeenReceipt({ user: peer }) {
       <span className="text-[8px] leading-none text-[#003B44]/40">Đã xem</span>
     </div>
   );
+}
+
+/** Avatar cực nhỏ cho trạng thái đã xem nhóm — viền trắng mảnh tách biệt */
+function TinySeenAvatar({ user }) {
+  const initial = (user?.firstName || user?.email || "?")[0]?.toUpperCase();
+
+  if (user?.avatar) {
+    return (
+      <img
+        src={user.avatar}
+        alt=""
+        className="h-3 w-3 shrink-0 rounded-full object-cover ring-1 ring-white"
+      />
+    );
+  }
+
+  return (
+    <span className="flex h-3 w-3 shrink-0 items-center justify-center rounded-full bg-[#003B44]/12 text-[6px] font-semibold leading-none text-[#003B44]/70 ring-1 ring-white">
+      {initial}
+    </span>
+  );
+}
+
+/** Hàng avatar đã xem dưới bong bóng tin nhóm (không có chữ) */
+function GroupSeenAvatars({ viewers }) {
+  if (!viewers?.length) return null;
+
+  return (
+    <div className="mr-10 mt-px flex flex-wrap items-center justify-end gap-px self-end">
+      {viewers.map((viewer) => (
+        <TinySeenAvatar key={String(viewer._id)} user={viewer} />
+      ))}
+    </div>
+  );
+}
+
+function getSeenByUserId(entry) {
+  if (!entry) return "";
+  if (typeof entry === "object") return String(entry._id || entry.id || "");
+  return String(entry);
+}
+
+/**
+ * Messenger-style: mỗi người chỉ hiện avatar ở tin cuối cùng họ đã đọc.
+ * Duyệt các tin của mình → với mỗi viewer, lưu index lớn nhất có trong seenBy.
+ * Chỉ render avatar tại index đó (tin số 10 nếu họ đọc đến 10, không hiện ở 1–9).
+ */
+function buildGroupSeenAvatarMap(messages, currentUserId, memberMap) {
+  const map = new Map();
+  const me = String(currentUserId);
+  const myMessages = messages
+    .map((m, index) => ({ m, index }))
+    .filter(
+      ({ m }) =>
+        isMessageMine(m, currentUserId) &&
+        !m.pending &&
+        !m.isRecalled &&
+        m._id &&
+        !String(m._id).startsWith("t-")
+    );
+
+  /** viewerId → index tin của mình mà họ đọc cuối cùng */
+  const viewerLastReadIndex = new Map();
+
+  myMessages.forEach(({ m, index }) => {
+    (m.seenBy || []).forEach((entry) => {
+      const vid = getSeenByUserId(entry);
+      if (!vid || vid === me) return;
+      const prev = viewerLastReadIndex.get(vid) ?? -1;
+      if (index > prev) viewerLastReadIndex.set(vid, index);
+    });
+  });
+
+  myMessages.forEach(({ m, index }) => {
+    const viewers = [];
+    viewerLastReadIndex.forEach((lastIndex, vid) => {
+      if (lastIndex !== index) return;
+      const fromMsg = (m.seenBy || []).find((entry) => getSeenByUserId(entry) === vid);
+      if (fromMsg && typeof fromMsg === "object" && (fromMsg.firstName !== undefined || fromMsg.avatar)) {
+        viewers.push(fromMsg);
+        return;
+      }
+      const member = memberMap?.get?.(vid);
+      viewers.push(member ? mergeUserProfile(member, null) : { _id: vid });
+    });
+    if (viewers.length) map.set(String(m._id), viewers);
+  });
+
+  return map;
+}
+
+function mergeSeenByEntry(list, user) {
+  const uid = getSeenByUserId(user);
+  if (!uid) return list || [];
+  const current = list || [];
+  if (current.some((e) => getSeenByUserId(e) === uid)) return current;
+  return [...current, user];
 }
 
 function displayUserName(person) {
@@ -476,18 +574,84 @@ function MessageActionBar({ message, isMine, onReply, onUnsend, onRemoveForMe })
   );
 }
 
-/** Nhãn tên phía trên bong bóng tin nhóm (ưu tiên firstName từ sender populate) */
-function groupSenderLabel(m, peerUser) {
-  if (m.senderName) return m.senderName;
-  if (m.sender && typeof m.sender === "object" && m.sender.firstName) {
-    const last = (m.sender.lastName || "").trim();
-    return last ? `${m.sender.firstName} ${last}` : m.sender.firstName;
+/** Tên gọi phía trên bong bóng chat nhóm — chỉ lấy từ cuối của họ tên đầy đủ */
+function groupBubbleSenderName(m, peerUser) {
+  if (m.sender && typeof m.sender === "object") {
+    const calling = getCallingName(m.sender);
+    if (calling) return calling;
   }
-  if (peerUser?.firstName) {
-    const last = (peerUser.lastName || "").trim();
-    return last ? `${peerUser.firstName} ${last}` : peerUser.firstName;
+  if (m.senderName) {
+    return getCallingNameFromFullName(m.senderName) || m.senderName;
   }
-  return displayUserName(peerUser);
+  if (peerUser) {
+    const calling = getCallingName(peerUser);
+    if (calling) return calling;
+  }
+  return getCallingNameFromFullName(displayUserName(peerUser)) || "Thành viên";
+}
+
+/** Ngưỡng 30 phút — tin cách nhau hơn mức này được coi là hai nhóm riêng */
+const MESSAGE_GROUP_GAP_MS = 30 * 60 * 1000;
+
+/** Khoảng thời gian (ms) giữa hai tin; laterMessage mới hơn earlierMessage */
+function getMessageTimeGapMs(laterMessage, earlierMessage) {
+  const later = new Date(laterMessage?.createdAt).getTime();
+  const earlier = new Date(earlierMessage?.createdAt).getTime();
+  if (Number.isNaN(later) || Number.isNaN(earlier)) return Infinity;
+  return later - earlier;
+}
+
+/** Cùng người gửi — so sánh senderId hoặc sender._id đã populate */
+function isSameMessageSender(messageA, messageB) {
+  if (!messageA || !messageB) return false;
+  const idA = getSenderId(messageA);
+  const idB = getSenderId(messageB);
+  return Boolean(idA && idB && idA === idB);
+}
+
+/**
+ * Hai tin liền kề có thuộc cùng nhóm gom không?
+ * Cần cùng người gửi VÀ khoảng cách thời gian ≤ 30 phút.
+ */
+function areMessagesInSameGroup(earlierMessage, laterMessage) {
+  if (!isSameMessageSender(earlierMessage, laterMessage)) return false;
+  return getMessageTimeGapMs(laterMessage, earlierMessage) <= MESSAGE_GROUP_GAP_MS;
+}
+
+/**
+ * Xác định vị trí tin trong nhóm gom liên tiếp.
+ *
+ * prevMessage — tin ngay phía trên (cũ hơn):
+ *   isFirstInGroup = true khi không có prev, khác người gửi, hoặc cách prev > 30 phút.
+ *
+ * nextMessage — tin ngay phía dưới (mới hơn):
+ *   isLastInGroup = true khi không có next, khác người gửi, hoặc cách next > 30 phút.
+ */
+function getMessageGroupPosition(message, prevMessage, nextMessage) {
+  const isFirstInGroup =
+    !prevMessage || !areMessagesInSameGroup(prevMessage, message);
+  const isLastInGroup =
+    !nextMessage || !areMessagesInSameGroup(message, nextMessage);
+  return { isFirstInGroup, isLastInGroup };
+}
+
+/** Bo góc bong bóng theo vị trí trong nhóm — giảm bo phía avatar để các tin 'dính' nhau */
+function getGroupedBubbleRadius(isMine, isFirstInGroup, isLastInGroup) {
+  if (isMine) {
+    if (isFirstInGroup && isLastInGroup) return "rounded-3xl rounded-br-2xl";
+    if (isFirstInGroup) return "rounded-3xl rounded-br-md";
+    if (isLastInGroup) return "rounded-3xl rounded-tr-md rounded-br-2xl";
+    return "rounded-3xl rounded-tr-md rounded-br-md";
+  }
+  if (isFirstInGroup && isLastInGroup) return "rounded-3xl rounded-bl-2xl";
+  if (isFirstInGroup) return "rounded-3xl rounded-bl-md";
+  if (isLastInGroup) return "rounded-3xl rounded-tl-md rounded-bl-2xl";
+  return "rounded-3xl rounded-tl-md rounded-bl-md";
+}
+
+/** Vùng đệm thay avatar (size xs = h-8 w-8) khi tin không phải cuối nhóm */
+function MessageAvatarPlaceholder() {
+  return <div className="h-8 w-8 shrink-0" aria-hidden="true" />;
 }
 
 function MessageRow({
@@ -498,6 +662,8 @@ function MessageRow({
   avatarUser,
   senderLabel,
   isGroupChat,
+  isFirstInGroup,
+  isLastInGroup,
   readReceiptUser,
   onUnsend,
   onRemoveForMe,
@@ -506,40 +672,61 @@ function MessageRow({
   currentUserId,
   friend,
   memberMap,
-  showSeenReceipt
+  showSeenReceipt,
+  groupSeenViewers
 }) {
   if (message.isRecalled) {
+    const recalledRadius = getGroupedBubbleRadius(isMine, isFirstInGroup, isLastInGroup);
     const recalledBubble = (
       <div
-        className={`min-w-0 max-w-[80%] rounded-3xl px-3.5 py-2.5 text-sm italic shadow-sm ${
-          isMine ? "rounded-br-2xl bg-[#003B44]/75 text-light/80" : "rounded-bl-2xl bg-gray-200 text-[#003B44]/55"
+        className={`min-w-0 max-w-[80%] px-3.5 py-2.5 text-sm italic shadow-sm ${recalledRadius} ${
+          isMine ? "bg-[#003B44]/75 text-light/80" : "bg-gray-200 text-[#003B44]/55"
         }`}
       >
         {RECALLED_TEXT}
       </div>
     );
 
+    const avatarSlot = isLastInGroup ? (
+      <UserAvatar user={avatarUser} size="xs" className="shrink-0 ring-1 ring-primary/15" alt="" />
+    ) : (
+      <MessageAvatarPlaceholder />
+    );
+
     if (isMine) {
       return (
         <div className="group flex w-full flex-col items-end">
           <div className="flex max-w-[min(92%,480px)] flex-row items-end gap-1.5">
-          {hoverTime ? (
-            <span className="shrink-0 self-end pb-1 text-[10px] leading-none tabular-nums text-primary/35 opacity-0 transition-opacity duration-150 group-hover/message-row:opacity-100 group-hover:opacity-100">
-              {hoverTime}
-            </span>
-          ) : null}
-          {recalledBubble}
-          <UserAvatar user={avatarUser} size="xs" className="shrink-0 ring-1 ring-primary/15" alt="" />
-        </div>
+            {hoverTime ? (
+              <span className="shrink-0 self-end pb-1 text-[10px] leading-none tabular-nums text-primary/35 opacity-0 transition-opacity duration-150 group-hover/message-row:opacity-100 group-hover:opacity-100">
+                {hoverTime}
+              </span>
+            ) : null}
+            {recalledBubble}
+            {avatarSlot}
+          </div>
           {showSeenReceipt ? <SeenReceipt user={readReceiptUser} /> : null}
+          {isGroupChat && isMine && groupSeenViewers?.length ? (
+            <GroupSeenAvatars viewers={groupSeenViewers} />
+          ) : null}
         </div>
       );
     }
 
+    const recalledSenderName =
+      !isMine && isGroupChat && isFirstInGroup && senderLabel ? (
+        <p className="mb-0.5 max-w-[min(92%,480px)] truncate px-1 text-[10px] font-medium text-[#003B44]/55">
+          {senderLabel}
+        </p>
+      ) : null;
+
     return (
-      <div className="flex min-w-0 max-w-[min(92%,480px)] flex-row items-end justify-start gap-2">
-        <UserAvatar user={avatarUser} size="xs" className="shrink-0 ring-1 ring-primary/15" alt="" />
-        {recalledBubble}
+      <div className="group flex max-w-[min(92%,480px)] flex-row items-end gap-1.5">
+        {avatarSlot}
+        <div className="flex min-w-0 flex-col items-start">
+          {recalledSenderName}
+          {recalledBubble}
+        </div>
         {hoverTime ? (
           <span className="shrink-0 self-end pb-1 text-[10px] leading-none tabular-nums text-primary/35 opacity-0 transition-opacity duration-150 group-hover/message-row:opacity-100">
             {hoverTime}
@@ -556,12 +743,15 @@ function MessageRow({
 
   if (!hasImage && !hasFile && !hasText) return null;
 
+  const bubbleRadius = getGroupedBubbleRadius(isMine, isFirstInGroup, isLastInGroup);
   const bubbleClass = isMine
-    ? `min-w-0 max-w-full rounded-3xl rounded-br-2xl bg-primary px-3.5 py-2.5 text-sm text-light shadow-sm ${pendingClass}`
-    : `min-w-0 max-w-full rounded-3xl rounded-bl-2xl bg-gray-100 px-3.5 py-2.5 text-sm text-primary shadow-sm ${pendingClass}`;
+    ? `min-w-0 max-w-full ${bubbleRadius} bg-primary px-3.5 py-2.5 text-sm text-light shadow-sm ${pendingClass}`
+    : `min-w-0 max-w-full ${bubbleRadius} bg-gray-100 px-3.5 py-2.5 text-sm text-primary shadow-sm ${pendingClass}`;
 
-  const avatar = (
+  const avatarSlot = isLastInGroup ? (
     <UserAvatar user={avatarUser} size="xs" className="shrink-0 ring-1 ring-primary/15" alt="" />
+  ) : (
+    <MessageAvatarPlaceholder />
   );
 
   const hoverTimeAside = hoverTime ? (
@@ -626,7 +816,7 @@ function MessageRow({
   );
 
   const senderNameEl =
-    !isMine && isGroupChat && senderLabel ? (
+    !isMine && isGroupChat && isFirstInGroup && senderLabel ? (
       <p className="mb-0.5 max-w-[min(92%,480px)] truncate px-1 text-[10px] font-medium text-[#003B44]/55">{senderLabel}</p>
     ) : null;
 
@@ -639,16 +829,17 @@ function MessageRow({
             {actionBar}
           </div>
           {messageBody}
-          {avatar}
+          {avatarSlot}
         </div>
         {showSeenReceipt ? <SeenReceipt user={readReceiptUser} /> : null}
+        {isGroupChat && groupSeenViewers?.length ? <GroupSeenAvatars viewers={groupSeenViewers} /> : null}
       </div>
     );
   }
 
   return (
     <div className="group flex max-w-[min(92%,480px)] flex-row items-end gap-1.5">
-      {avatar}
+      {avatarSlot}
       <div className="flex min-w-0 flex-col items-start">
         {senderNameEl}
         <div className="flex items-end gap-0.5">
@@ -800,21 +991,23 @@ function ChatWindow({ friend, group, currentUserId }) {
   }, [socket, chatId, isGroupChat]);
 
   /**
-   * Cơ chế "Đã xem" (báo cáo):
-   * 1. Mỗi tin gửi đi lưu isRead=false trên server.
-   * 2. Khi người nhận mở khung chat (hoặc đang xem chat và có tin mới), client emit mark_as_read.
-   * 3. Server gắn isRead=true cho tin do người kia gửi tới mình, rồi báo người gửi qua messages_read.
-   * 4. Người gửi hiển thị "Đã xem" dưới tin nhắn cuối cùng của mình nếu tin đó đã isRead.
+   * Cơ chế "Đã xem":
+   * - DM: mark_as_read({ friendId }) → isRead, hiển thị "Đã xem" dưới tin cuối.
+   * - Nhóm: mark_as_read({ groupId }) → seenBy[], avatar nhỏ dưới tin cuối mỗi người đã đọc.
    */
   const markAsRead = useCallback(() => {
-    if (isGroupChat || !socket?.connected || !chatId) return;
-    socket.emit("mark_as_read", { friendId: chatId });
+    if (!socket?.connected || !chatId) return;
+    if (isGroupChat) {
+      socket.emit("mark_as_read", { groupId: chatId });
+    } else {
+      socket.emit("mark_as_read", { friendId: chatId });
+    }
   }, [socket, chatId, isGroupChat]);
 
   useEffect(() => {
-    if (isGroupChat || !chatId || loadingHistory) return;
+    if (!chatId || loadingHistory) return;
     markAsRead();
-  }, [chatId, loadingHistory, markAsRead, isGroupChat]);
+  }, [chatId, loadingHistory, markAsRead]);
 
   useEffect(() => {
     if (!socket || !chatId || !currentUserId) return undefined;
@@ -841,9 +1034,24 @@ function ChatWindow({ friend, group, currentUserId }) {
         return [...prev, msg];
       });
 
-      if (!isGroupChat && getSenderId(msg) === String(chatId)) {
+      if (isGroupChat && getSenderId(msg) !== me) {
+        markAsRead();
+      } else if (!isGroupChat && getSenderId(msg) === String(chatId)) {
         markAsRead();
       }
+    };
+
+    const onGroupMessageSeen = ({ groupId, userId, user, messageIds }) => {
+      if (!isGroupChat || String(groupId) !== String(chatId)) return;
+      const ids = new Set((messageIds || []).map(String));
+      if (!ids.size) return;
+
+      setMessages((prev) =>
+        prev.map((m) => {
+          if (!ids.has(String(m._id))) return m;
+          return { ...m, seenBy: mergeSeenByEntry(m.seenBy, user || { _id: userId }) };
+        })
+      );
     };
 
     const onMessagesRead = ({ readBy }) => {
@@ -876,10 +1084,12 @@ function ChatWindow({ friend, group, currentUserId }) {
     };
 
     socket.on("new_message", onNew);
+    socket.on("group_message_seen", onGroupMessageSeen);
     socket.on("messages_read", onMessagesRead);
     socket.on("message_updated", onMessageUpdated);
     return () => {
       socket.off("new_message", onNew);
+      socket.off("group_message_seen", onGroupMessageSeen);
       socket.off("messages_read", onMessagesRead);
       socket.off("message_updated", onMessageUpdated);
     };
@@ -959,6 +1169,7 @@ function ChatWindow({ friend, group, currentUserId }) {
       fileType,
       fileName,
       isRead: false,
+      seenBy: [],
       isRecalled: false,
       hiddenFor: [],
       replyTo: replySnap,
@@ -1068,6 +1279,11 @@ function ChatWindow({ friend, group, currentUserId }) {
     return null;
   }, [visibleMessages, currentUserId]);
 
+  const groupSeenAvatarMap = useMemo(() => {
+    if (!isGroupChat) return new Map();
+    return buildGroupSeenAvatarMap(visibleMessages, currentUserId, memberMap);
+  }, [visibleMessages, currentUserId, isGroupChat, memberMap]);
+
   const onlineUserSet = useMemo(
     () => (onlineUsers instanceof Set ? onlineUsers : new Set(Array.isArray(onlineUsers) ? onlineUsers.map(String) : [])),
     [onlineUsers]
@@ -1127,7 +1343,7 @@ function ChatWindow({ friend, group, currentUserId }) {
       </header>
 
       <div className="relative z-10 flex min-h-0 flex-1 flex-col overflow-hidden">
-        <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-4 md:px-5">
+        <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 md:px-5">
           {loadingHistory ? (
             <div className="flex justify-center py-10 text-primary/45">
               <Loader2 className="animate-spin" size={22} />
@@ -1138,6 +1354,15 @@ function ChatWindow({ friend, group, currentUserId }) {
             visibleMessages.map((m, index) => {
               const isMine = isMessageMine(m, currentUserId);
               const previousMessage = index > 0 ? visibleMessages[index - 1] : null;
+              const nextMessage = index < visibleMessages.length - 1 ? visibleMessages[index + 1] : null;
+
+              // So sánh prevMessage / nextMessage để biết tin đứng đầu hay cuối nhóm gom
+              const { isFirstInGroup, isLastInGroup } = getMessageGroupPosition(
+                m,
+                previousMessage,
+                nextMessage
+              );
+
               const currentDate = new Date(m.createdAt);
               const previousDate = previousMessage ? new Date(previousMessage.createdAt) : null;
 
@@ -1161,7 +1386,14 @@ function ChatWindow({ friend, group, currentUserId }) {
                 isGroupChat
               });
               const peerUser = avatarUser;
-              const senderLabel = !isMine && isGroupChat ? groupSenderLabel(m, peerUser) : null;
+              // Tên gọi (từ cuối họ tên) — chỉ hiện ở tin đầu nhóm, không phải tin của mình
+              const senderLabel =
+                !isMine && isGroupChat && isFirstInGroup
+                  ? groupBubbleSenderName(m, peerUser)
+                  : null;
+
+              // mt-0.5 trong cùng nhóm; mt-4 khi bắt đầu nhóm mới (khác người gửi / > 30 phút)
+              const groupSpacingClass = isFirstInGroup && index > 0 ? "mt-4" : !isFirstInGroup ? "mt-0.5" : "";
 
               return (
                 <div
@@ -1169,7 +1401,7 @@ function ChatWindow({ friend, group, currentUserId }) {
                   ref={(el) => {
                     if (el) messageRefs.current[String(m._id)] = el;
                   }}
-                  className="w-full scroll-mt-4 transition-[box-shadow] duration-300"
+                  className={`w-full scroll-mt-4 transition-[box-shadow] duration-300 ${groupSpacingClass}`}
                 >
                   {shouldShowTimestampSeparator && separatorText ? (
                     <div className="my-4 text-center text-[11px] text-primary/40">{separatorText}</div>
@@ -1182,6 +1414,8 @@ function ChatWindow({ friend, group, currentUserId }) {
                     <MessageRow
                       message={m}
                       isMine={isMine}
+                      isFirstInGroup={isFirstInGroup}
+                      isLastInGroup={isLastInGroup}
                       hoverTime={hoverTime}
                       onOpenImage={setLightboxUrl}
                       avatarUser={avatarUser}
@@ -1201,6 +1435,9 @@ function ChatWindow({ friend, group, currentUserId }) {
                         lastMyMessageId === String(m._id) &&
                         Boolean(m.isRead) &&
                         !m.pending
+                      }
+                      groupSeenViewers={
+                        isGroupChat && isMine ? groupSeenAvatarMap.get(String(m._id)) || [] : []
                       }
                     />
                   </div>

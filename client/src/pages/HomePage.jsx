@@ -6,6 +6,7 @@ import ChatWindow from "../components/ChatWindow";
 import CreateGroupModal from "../components/CreateGroupModal";
 import GroupAvatar from "../components/GroupAvatar";
 import UserAvatar from "../components/UserAvatar";
+import { getCallingName, getCallingNameFromFullName } from "../utils/displayName";
 import { useAuth } from "../context/AuthContext";
 import { useSocket } from "../context/SocketContext";
 
@@ -29,15 +30,15 @@ function buildPreviewFromMessage(msg, meId, { user, peer, group } = {}) {
   let label = "Bạn";
 
   if (!isMe) {
-    if (typeof msg.sender === "object" && msg.sender?.firstName) {
-      label = msg.sender.firstName;
+    if (typeof msg.sender === "object" && (msg.sender?.firstName || msg.sender?.lastName)) {
+      label = getCallingName(msg.sender) || "Thành viên";
     } else if (msg.senderName) {
-      label = msg.senderName.split(" ")[0] || msg.senderName;
-    } else if (peer?.firstName) {
-      label = peer.firstName;
+      label = getCallingNameFromFullName(msg.senderName) || msg.senderName;
+    } else if (peer?.firstName || peer?.lastName) {
+      label = getCallingName(peer) || "Thành viên";
     } else if (group?.members) {
       const member = group.members.find((m) => String(m._id || m.id) === sid);
-      if (member?.firstName) label = member.firstName;
+      label = member ? getCallingName(member) || "Thành viên" : "Thành viên";
     } else {
       label = "Thành viên";
     }

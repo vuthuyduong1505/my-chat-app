@@ -36,11 +36,18 @@ const messageSchema = new mongoose.Schema(
       trim: true,
       default: ""
     },
-    /** true khi người nhận đã mở/đọc tin (dùng cho trạng thái "Đã xem" phía người gửi) */
+    /** true khi người nhận đã mở/đọc tin 1-1 (trạng thái "Đã xem" DM) */
     isRead: {
       type: Boolean,
       default: false
     },
+    /** Nhóm chat: danh sách thành viên đã xem tin (Messenger-style seenBy) */
+    seenBy: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "User"
+      }
+    ],
     /** Thu hồi cho cả hai phía (Unsend) — isRecalled=true, nội dung thay bằng placeholder */
     isRecalled: {
       type: Boolean,
