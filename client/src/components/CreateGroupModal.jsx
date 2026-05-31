@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Loader2, Users, X } from "lucide-react";
+import { Loader2, Search, Users, X } from "lucide-react";
 import toast from "react-hot-toast";
 import api from "../api";
 import UserAvatar from "./UserAvatar";
@@ -13,6 +13,7 @@ function CreateGroupModal({ open, onClose, onCreated }) {
   const [friends, setFriends] = useState([]);
   const [loadingFriends, setLoadingFriends] = useState(false);
   const [name, setName] = useState("");
+  const [memberSearch, setMemberSearch] = useState("");
   const [selectedIds, setSelectedIds] = useState([]);
   const [submitting, setSubmitting] = useState(false);
 
@@ -35,9 +36,26 @@ function CreateGroupModal({ open, onClose, onCreated }) {
     load();
     return () => {
       setName("");
+      setMemberSearch("");
       setSelectedIds([]);
     };
   }, [open]);
+
+  /**
+   * Lọc thành viên trong Modal tạo nhóm:
+   * - Chuẩn hóa từ khóa (trim + lowercase) khi người dùng gõ ô tìm kiếm.
+   * - So khớp với họ tên đầy đủ và email của từng bạn bè.
+   * - Chỉ render danh sách đã lọc; ô tìm trống → hiện toàn bộ bạn bè.
+   */
+  const filteredFriends = useMemo(() => {
+    const keyword = memberSearch.trim().toLowerCase();
+    if (!keyword) return friends;
+    return friends.filter((friend) => {
+      const fullName = `${friend.firstName || ""} ${friend.lastName || ""}`.trim().toLowerCase();
+      const email = (friend.email || "").toLowerCase();
+      return fullName.includes(keyword) || email.includes(keyword);
+    });
+  }, [friends, memberSearch]);
 
   const toggleMember = (id) => {
     const key = String(id);
@@ -96,23 +114,39 @@ function CreateGroupModal({ open, onClose, onCreated }) {
                 onChange={(e) => setName(e.target.value)}
                 placeholder="Ví dụ: Nhóm dự án, Lớp học..."
                 maxLength={120}
-                className="w-full rounded-xl border border-[#003B44]/15 bg-white px-3 py-2.5 text-sm text-[#003B44] outline-none ring-[#00BFA5]/0 transition focus:ring-2 focus:ring-[#00BFA5]/40"
+                className="w-full rounded-xl border border-[#003B44]/15 bg-white px-3 py-2.5 text-sm text-[#003B44] shadow-sm outline-none transition focus:ring-2 focus:ring-[#00BFA5]/40"
               />
             </div>
 
-            <div>
+            <div className="flex min-h-0 flex-col">
               <p className="mb-2 text-xs font-medium text-[#003B44]/70">Chọn thành viên (bạn bè)</p>
+
+              <div className="mb-2 flex items-center gap-2 rounded-xl border border-[#003B44]/15 bg-white/90 px-3 py-2 shadow-sm focus-within:ring-2 focus-within:ring-[#00BFA5]/40">
+                <Search size={16} className="shrink-0 text-[#00BFA5]" aria-hidden />
+                <input
+                  type="search"
+                  value={memberSearch}
+                  onChange={(e) => setMemberSearch(e.target.value)}
+                  placeholder="Tìm theo tên hoặc email..."
+                  className="min-w-0 flex-1 bg-transparent text-sm text-[#003B44] outline-none placeholder:text-[#003B44]/40"
+                />
+              </div>
+
               {loadingFriends ? (
-                <div className="flex justify-center py-6 text-[#003B44]/50">
+                <div className="flex h-56 items-center justify-center text-[#003B44]/50">
                   <Loader2 size={20} className="animate-spin" />
                 </div>
               ) : friends.length === 0 ? (
-                <p className="rounded-xl border border-dashed border-[#003B44]/15 px-3 py-4 text-center text-sm text-[#003B44]/50">
+                <p className="flex h-56 items-center justify-center rounded-xl border border-dashed border-[#003B44]/15 px-3 text-center text-sm text-[#003B44]/50">
                   Bạn chưa có bạn bè để thêm vào nhóm.
                 </p>
+              ) : filteredFriends.length === 0 ? (
+                <p className="flex h-56 items-center justify-center rounded-xl border border-dashed border-[#003B44]/15 px-3 text-center text-sm text-[#003B44]/50">
+                  Không tìm thấy bạn bè phù hợp
+                </p>
               ) : (
-                <ul className="max-h-52 space-y-1 overflow-y-auto pr-0.5">
-                  {friends.map((friend) => {
+                <ul className="h-56 space-y-1 overflow-y-auto rounded-xl border border-[#003B44]/10 bg-[#003B44]/[0.02] p-1 pr-0.5">
+                  {filteredFriends.map((friend) => {
                     const id = String(friend._id || friend.id);
                     const checked = selectedIds.includes(id);
                     return (

@@ -41,18 +41,28 @@ const messageSchema = new mongoose.Schema(
       type: Boolean,
       default: false
     },
-    /** Thu hồi cho cả hai phía — nội dung thay bằng placeholder */
+    /** Thu hồi cho cả hai phía (Unsend) — isRecalled=true, nội dung thay bằng placeholder */
     isRecalled: {
       type: Boolean,
       default: false
     },
-    /** Danh sách userId đã xóa tin chỉ phía mình */
+    /** Danh sách userId đã xóa tin chỉ phía mình (Remove — ẩn local qua hiddenFor) */
     hiddenFor: [
       {
         type: mongoose.Schema.Types.ObjectId,
         ref: "User"
       }
-    ]
+    ],
+    /**
+     * Self-referencing (MongoDB): replyTo trỏ về _id của một document Message khác
+     * trong cùng collection — cho phép trả lời (reply) tin đã có mà không nhân bản nội dung.
+     * Khi populate replyTo, server lồng thêm sender của tin gốc để client hiển thị trích dẫn.
+     */
+    replyTo: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Message",
+      default: null
+    }
   },
   {
     timestamps: true //Thời gian tạo và cập nhật

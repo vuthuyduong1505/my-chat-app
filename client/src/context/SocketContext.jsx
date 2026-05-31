@@ -1,6 +1,10 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { io } from "socket.io-client";
 import GlobalMessageNotifier from "../components/GlobalMessageNotifier";
+import {
+  dispatchConversationActivity,
+  isDuplicateConversationMessage
+} from "../utils/conversationEvents";
 import { useAuth } from "./AuthContext";
 
 const SocketContext = createContext(null);
@@ -147,6 +151,11 @@ export function SocketProvider({ children }) {
     if (!socket || !currentUserId) return undefined;
 
     const onNewMessage = (msg) => {
+      if (isDuplicateConversationMessage(msg)) return;
+
+      // Báo HomePage cập nhật preview + đẩy đoạn chat lên đầu (cả tin mình gửi và tin nhận)
+      dispatchConversationActivity(msg);
+
       const me = String(currentUserId);
       const senderId = String(
         msg.senderId ||
@@ -154,6 +163,7 @@ export function SocketProvider({ children }) {
           ""
       );
 
+      // Badge nhóm: chỉ tăng khi không mở khung chat nhóm đó và không phải tin tự gửi
       if (msg.groupId) {
         if (senderId === me) return;
         const gid = String(msg.groupId);

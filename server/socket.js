@@ -4,14 +4,42 @@ const { Server } = require("socket.io");
 const User = require("./models/User");
 const Group = require("./models/Group");
 const Message = require("./models/Message");
-const { normalizeMessagePayload, SENDER_PROFILE_FIELDS } = require("./utils/messagePayload");
+const {
+  normalizeMessagePayload,
+  SENDER_PROFILE_FIELDS,
+  REPLY_TO_POPULATE
+} = require("./utils/messagePayload");
 
-/** Tải sender đã populate để socket/API cùng cấu trúc (avatar, tên) */
+/** Tải sender + replyTo (self-ref) đã populate để socket/API đồng bộ */
 async function emitMessagePayload(doc, extra = {}) {
   const populated = await Message.findById(doc._id)
     .populate("sender", SENDER_PROFILE_FIELDS)
+    .populate(REPLY_TO_POPULATE)
     .lean();
   return { ...normalizeMessagePayload(populated || doc), ...extra };
+}
+
+async function resolveValidReplyToId(replyToId, { userId, groupId, receiverId }) {
+  if (!replyToId || !mongoose.Types.ObjectId.isValid(replyToId)) return null;
+
+  const parent = await Message.findById(replyToId).lean();
+  if (!parent) return null;
+
+  if (groupId) {
+    if (!parent.groupId || String(parent.groupId) !== String(groupId)) return null;
+    const group = await Group.findById(groupId).select("members").lean();
+    if (!group) return null;
+    const isMember = (group.members || []).some((id) => String(id) === String(userId));
+    return isMember ? replyToId : null;
+  }
+
+  if (parent.groupId || !receiverId) return null;
+  const me = String(userId);
+  const fid = String(receiverId);
+  const inThread =
+    (String(parent.sender) === me && String(parent.receiver) === fid) ||
+    (String(parent.sender) === fid && String(parent.receiver) === me);
+  return inThread ? replyToId : null;
 }
 
 const RECALLED_PLACEHOLDER = "Tin nhắn đã bị thu hồi";
@@ -197,7 +225,9 @@ function attachSocketIO(httpServer) {
       socket.leave(groupRoomId(groupId));
     });
 
-    socket.on("send_message", async ({ receiverId, groupId, content, tempId, fileUrl, fileType, fileName }) => {
+    socket.on(
+      "send_message",
+      async ({ receiverId, groupId, content, tempId, fileUrl, fileType, fileName, replyToId }) => {
       try {
         const text = typeof content === "string" ? content.trim() : "";
         const attachmentUrl = typeof fileUrl === "string" ? fileUrl.trim() : "";
@@ -205,6 +235,12 @@ function attachSocketIO(httpServer) {
         const attachmentName = typeof fileName === "string" ? fileName.trim() : "";
 
         if (!text && !attachmentUrl) return;
+
+        const validReplyTo = await resolveValidReplyToId(replyToId, {
+          userId,
+          groupId,
+          receiverId
+        });
 
         /**
          * Điều phối tin nhắn NHÓM qua Socket.io:
@@ -226,12 +262,18 @@ function attachSocketIO(httpServer) {
             content: text,
             fileUrl: attachmentUrl,
             fileType: attachmentType,
-            fileName: attachmentName
+            fileName: attachmentName,
+            ...(validReplyTo ? { replyTo: validReplyTo } : {})
           });
 
           const payload = await emitMessagePayload(doc, tempId ? { tempId } : {});
 
           io.to(groupRoomId(groupId)).emit("new_message", payload);
+          // Phát thêm vào phòng user:{memberId} để mọi thành viên online cập nhật Sidebar/badge
+          // (kể cả khi chưa join kịp phòng group). Client lọc trùng theo _id/tempId.
+          (group.members || []).forEach((memberId) => {
+            io.to(userRoomId(memberId)).emit("new_message", payload);
+          });
           return;
         }
 
@@ -250,7 +292,8 @@ function attachSocketIO(httpServer) {
           content: text,
           fileUrl: attachmentUrl,
           fileType: attachmentType,
-          fileName: attachmentName
+          fileName: attachmentName,
+          ...(validReplyTo ? { replyTo: validReplyTo } : {})
         });
 
         const payload = await emitMessagePayload(doc, tempId ? { tempId } : {});
@@ -299,6 +342,11 @@ function attachSocketIO(httpServer) {
       }
     });
 
+    /**
+     * Xóa / Thu hồi tin nhắn:
+     * - mode "everyone" (Unsend/Thu hồi): chỉ người gửi; isRecalled → mọi người thấy placeholder qua message_updated.
+     * - mode "self" (Remove): thêm userId vào hiddenFor — chỉ ẩn trên client của người xóa.
+     */
     socket.on("delete_message", async ({ messageId, mode }) => {
       try {
         if (!messageId || !mongoose.Types.ObjectId.isValid(messageId)) return;
@@ -315,6 +363,7 @@ function attachSocketIO(httpServer) {
         if (!isParticipant) return;
 
         if (mode === "everyone") {
+          // Thu hồi: chỉ người gửi được phép
           if (!isSender || doc.isRecalled) return;
           doc.isRecalled = true;
           doc.content = RECALLED_PLACEHOLDER;
@@ -322,6 +371,7 @@ function attachSocketIO(httpServer) {
           doc.fileType = "";
           doc.fileName = "";
         } else {
+          // Xóa phía tôi: mọi thành viên cuộc trò chuyện đều được phép (không cần là người gửi)
           const hidden = (doc.hiddenFor || []).map(String);
           if (!hidden.includes(String(userId))) {
             doc.hiddenFor.push(userId);
@@ -332,6 +382,10 @@ function attachSocketIO(httpServer) {
         const payload = await emitMessagePayload(doc);
         if (doc.groupId) {
           io.to(groupRoomId(doc.groupId)).emit("message_updated", payload);
+          const group = await Group.findById(doc.groupId).select("members").lean();
+          (group?.members || []).forEach((memberId) => {
+            io.to(userRoomId(memberId)).emit("message_updated", payload);
+          });
         } else {
           io.to(userRoomId(doc.sender)).emit("message_updated", payload);
           io.to(userRoomId(doc.receiver)).emit("message_updated", payload);

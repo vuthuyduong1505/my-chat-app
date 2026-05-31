@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { FileText, Loader2, MessageCircle, Paperclip, Plus, Send, Users, X } from "lucide-react";
+import { FileText, Loader2, MessageCircle, MoreVertical, Paperclip, Plus, Reply, Send, Users, X } from "lucide-react";
 import toast from "react-hot-toast";
 import api from "../api";
 import UserAvatar from "./UserAvatar";
@@ -244,18 +244,236 @@ function getSenderId(m) {
 function isMessageMine(m, currentUserId) {
   if (!m || !currentUserId) return false;
   const raw = m.sender;
-  const senderKey = (raw && typeof raw === "object" ? raw._id || raw.id : raw) ?? m.senderId;
-  return String(senderKey) === String(currentUserId);
+  const senderKey =
+    raw && typeof raw === "object" ? raw._id || raw.id : raw ?? m.senderId;
+  return String(senderKey ?? "") === String(currentUserId);
 }
 
-function resolvePeerUser(m, { user, friend, memberMap, currentUserId }) {
-  if (isMessageMine(m, currentUserId)) return user;
-  if (m.sender && typeof m.sender === "object" && (m.sender._id || m.sender.firstName)) {
-    return m.sender;
+/** Gộp profile từ sender populate + fallback (friend / user) để Avatar luôn có dữ liệu */
+function mergeUserProfile(primary, fallback) {
+  const p = primary && typeof primary === "object" ? primary : null;
+  const f = fallback && typeof fallback === "object" ? fallback : null;
+  if (!p && !f) return null;
+  return {
+    _id: String(p?._id || p?.id || f?._id || f?.id || ""),
+    firstName: p?.firstName || f?.firstName || "",
+    lastName: p?.lastName || f?.lastName || "",
+    email: p?.email || f?.email || "",
+    avatar: String(p?.avatar || f?.avatar || "").trim()
+  };
+}
+
+/**
+ * Avatar cho từng dòng tin: ưu tiên m.sender.avatar (populate),
+ * fallback user (tin mình) hoặc friend (tin 1-1) / memberMap (nhóm).
+ */
+function resolveMessageAvatar(m, isMine, { user, friend, memberMap, currentUserId, isGroupChat }) {
+  if (isMine) {
+    const fromSender = typeof m.sender === "object" && m.sender ? m.sender : null;
+    return mergeUserProfile(fromSender, user);
   }
+
   const id = getSenderId(m);
-  if (memberMap && id) return memberMap.get(id) || friend;
-  return friend;
+  let fallback = friend;
+  if (isGroupChat && memberMap && id) {
+    fallback = memberMap.get(id) || friend;
+  }
+
+  if (typeof m.sender === "object" && m.sender && (m.sender._id || m.sender.id)) {
+    return mergeUserProfile(m.sender, fallback);
+  }
+
+  return fallback || null;
+}
+
+function resolvePeerUser(m, { user, friend, memberMap, currentUserId, isGroupChat }) {
+  return resolveMessageAvatar(m, isMessageMine(m, currentUserId), {
+    user,
+    friend,
+    memberMap,
+    currentUserId,
+    isGroupChat
+  });
+}
+
+function replyContentLabel(replyTo) {
+  if (!replyTo) return "";
+  if (replyTo.isRecalled) return "Tin nhắn đã bị thu hồi";
+  if (replyTo.fileType === "image") return "Hình ảnh";
+  if (replyTo.fileType === "file") return "Tệp tin";
+  const text = (replyTo.content || "").trim();
+  if (!text) return "Tin nhắn";
+  return text.length > 80 ? `${text.slice(0, 80)}…` : text;
+}
+
+function replyAuthorName(replyTo, currentUserId, { friend, memberMap } = {}) {
+  if (!replyTo) return "Thành viên";
+  const sid =
+    replyTo.senderId ||
+    (typeof replyTo.sender === "object"
+      ? String(replyTo.sender._id || replyTo.sender.id || "")
+      : String(replyTo.sender || ""));
+  if (sid && String(sid) === String(currentUserId)) return "Bạn";
+  if (replyTo.senderName) {
+    const first = replyTo.senderName.split(" ")[0];
+    return first || replyTo.senderName;
+  }
+  if (typeof replyTo.sender === "object" && replyTo.sender?.firstName) {
+    return replyTo.sender.firstName;
+  }
+  if (memberMap && sid) {
+    const member = memberMap.get(sid);
+    if (member?.firstName) return member.firstName;
+  }
+  if (friend && sid === String(friend._id || friend.id)) {
+    return friend.firstName || displayUserName(friend);
+  }
+  return "Thành viên";
+}
+
+function buildReplySnapshot(message) {
+  if (!message?._id) return null;
+  return {
+    _id: String(message._id),
+    content: message.content || "",
+    fileUrl: message.fileUrl || "",
+    fileType: message.fileType || "",
+    fileName: message.fileName || "",
+    isRecalled: Boolean(message.isRecalled),
+    sender: message.sender,
+    senderId: message.senderId || getSenderId(message),
+    senderName: message.senderName || ""
+  };
+}
+
+/** Khối trích dẫn tin được trả lời — thanh Cyan bên trái, nhấn để cuộn tới tin gốc */
+function ReplyQuote({ replyTo, isMine, onJump, currentUserId, friend, memberMap }) {
+  if (!replyTo?._id) return null;
+
+  const name = replyAuthorName(replyTo, currentUserId, { friend, memberMap });
+  const preview = replyContentLabel(replyTo);
+
+  return (
+    <button
+      type="button"
+      onClick={(e) => {
+        e.stopPropagation();
+        onJump?.(replyTo._id);
+      }}
+      className={`mb-1.5 w-full max-w-full rounded-md border-l-[3px] border-[#00BFA5] px-2.5 py-1.5 text-left transition hover:opacity-90 ${
+        isMine ? "bg-black/15" : "bg-[#003B44]/[0.07]"
+      }`}
+    >
+      <p className="truncate text-[11px] font-semibold text-[#00BFA5]">{name}</p>
+      <p className={`truncate text-[11px] ${isMine ? "text-light/75" : "text-[#003B44]/55"}`}>{preview}</p>
+    </button>
+  );
+}
+
+/**
+ * Thu hồi (Unsend) vs Xóa (Remove) — báo cáo:
+ * - Thu hồi: chỉ tin của mình; server đặt isRecalled=true, mọi người thấy "Tin nhắn đã bị thu hồi".
+ * - Xóa ở phía tôi: ai cũng được; server thêm userId vào hiddenFor — chỉ ẩn trên thiết bị người xóa.
+ */
+function MessageMoreMenu({ isMine, onUnsend, onRemoveForMe, onClose, align = "right" }) {
+  return (
+    <div
+      className={`absolute bottom-full z-50 mb-2 min-w-[200px] overflow-hidden rounded-xl bg-white py-1.5 shadow-xl ${
+        align === "left" ? "left-0" : "right-0"
+      }`}
+      data-message-action
+      role="menu"
+      onClick={(e) => e.stopPropagation()}
+    >
+      {isMine ? (
+        <button
+          type="button"
+          role="menuitem"
+          className="block w-full px-4 py-2.5 text-left text-sm text-[#003B44] transition hover:bg-gray-100"
+          onClick={() => {
+            onUnsend?.();
+            onClose?.();
+          }}
+        >
+          Thu hồi
+        </button>
+      ) : null}
+      <button
+        type="button"
+        role="menuitem"
+        className="block w-full px-4 py-2.5 text-left text-sm text-[#003B44] transition hover:bg-gray-100"
+        onClick={() => {
+          onRemoveForMe?.();
+          onClose?.();
+        }}
+      >
+        Xóa ở phía tôi
+      </button>
+    </div>
+  );
+}
+
+/** Hành lang nút Reply + More — chỉ hiện khi hover dòng tin (Messenger-style) */
+function MessageActionBar({ message, isMine, onReply, onUnsend, onRemoveForMe }) {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuWrapRef = useRef(null);
+
+  useEffect(() => {
+    if (!menuOpen) return undefined;
+    const close = (e) => {
+      if (menuWrapRef.current?.contains(e.target)) return;
+      setMenuOpen(false);
+    };
+    document.addEventListener("mousedown", close);
+    return () => document.removeEventListener("mousedown", close);
+  }, [menuOpen]);
+
+  if (message.isRecalled || message.pending) return null;
+
+  const btnClass = `relative z-10 flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-primary/75 transition-all duration-200 opacity-0 pointer-events-none hover:bg-gray-200 hover:text-primary group-hover/message-row:pointer-events-auto group-hover/message-row:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100 ${
+    menuOpen ? "pointer-events-auto opacity-100" : ""
+  }`;
+
+  return (
+    <div className="relative z-10 flex shrink-0 items-center gap-0.5 self-center" data-message-action>
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          onReply?.(message);
+        }}
+        className={btnClass}
+        aria-label="Trả lời"
+        title="Trả lời"
+      >
+        <Reply size={14} />
+      </button>
+      <div className="relative" ref={menuWrapRef}>
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            setMenuOpen((o) => !o);
+          }}
+          className={btnClass}
+          aria-label="Tuỳ chọn khác"
+          aria-expanded={menuOpen}
+          title="Tuỳ chọn"
+        >
+          <MoreVertical size={14} />
+        </button>
+        {menuOpen ? (
+          <MessageMoreMenu
+            isMine={isMine}
+            align={isMine ? "right" : "left"}
+            onUnsend={() => onUnsend?.(message)}
+            onRemoveForMe={() => onRemoveForMe?.(message)}
+            onClose={() => setMenuOpen(false)}
+          />
+        ) : null}
+      </div>
+    </div>
+  );
 }
 
 /** Nhãn tên phía trên bong bóng tin nhóm (ưu tiên firstName từ sender populate) */
@@ -277,54 +495,19 @@ function MessageRow({
   isMine,
   hoverTime,
   onOpenImage,
-  user,
-  peerUser,
+  avatarUser,
   senderLabel,
   isGroupChat,
   readReceiptUser,
-  onRecall,
-  onDeleteSelf,
+  onUnsend,
+  onRemoveForMe,
+  onReply,
+  onScrollToReply,
+  currentUserId,
+  friend,
+  memberMap,
   showSeenReceipt
 }) {
-  const [actionMenu, setActionMenu] = useState(null);
-  const longPressTimerRef = useRef(null);
-
-  const openActionMenu = (clientX, clientY) => {
-    if (!isMine || message.isRecalled || message.pending) return;
-    setActionMenu({ x: clientX, y: clientY });
-  };
-
-  const handleContextMenu = (e) => {
-    e.preventDefault();
-    openActionMenu(e.clientX, e.clientY);
-  };
-
-  const handleTouchStart = (e) => {
-    if (!isMine || message.isRecalled || message.pending) return;
-    longPressTimerRef.current = window.setTimeout(() => {
-      const touch = e.touches[0];
-      openActionMenu(touch.clientX, touch.clientY);
-    }, 500);
-  };
-
-  const handleTouchEnd = () => {
-    if (longPressTimerRef.current) {
-      clearTimeout(longPressTimerRef.current);
-      longPressTimerRef.current = null;
-    }
-  };
-
-  useEffect(() => {
-    if (!actionMenu) return undefined;
-    const close = () => setActionMenu(null);
-    window.addEventListener("click", close);
-    window.addEventListener("scroll", close, true);
-    return () => {
-      window.removeEventListener("click", close);
-      window.removeEventListener("scroll", close, true);
-    };
-  }, [actionMenu]);
-
   if (message.isRecalled) {
     const recalledBubble = (
       <div
@@ -338,16 +521,16 @@ function MessageRow({
 
     if (isMine) {
       return (
-        <div className="flex min-w-0 max-w-[min(92%,480px)] flex-col items-end">
-          <div className="flex flex-row items-end justify-end gap-2">
-            {hoverTime ? (
-              <span className="shrink-0 self-end pb-1 text-[10px] leading-none tabular-nums text-primary/35 opacity-0 transition-opacity duration-150 group-hover/message-row:opacity-100">
-                {hoverTime}
-              </span>
-            ) : null}
-            {recalledBubble}
-            <UserAvatar user={user} size="xs" className="shrink-0 ring-1 ring-primary/15" alt="" />
-          </div>
+        <div className="group flex w-full flex-col items-end">
+          <div className="flex max-w-[min(92%,480px)] flex-row items-end gap-1.5">
+          {hoverTime ? (
+            <span className="shrink-0 self-end pb-1 text-[10px] leading-none tabular-nums text-primary/35 opacity-0 transition-opacity duration-150 group-hover/message-row:opacity-100 group-hover:opacity-100">
+              {hoverTime}
+            </span>
+          ) : null}
+          {recalledBubble}
+          <UserAvatar user={avatarUser} size="xs" className="shrink-0 ring-1 ring-primary/15" alt="" />
+        </div>
           {showSeenReceipt ? <SeenReceipt user={readReceiptUser} /> : null}
         </div>
       );
@@ -355,7 +538,7 @@ function MessageRow({
 
     return (
       <div className="flex min-w-0 max-w-[min(92%,480px)] flex-row items-end justify-start gap-2">
-        <UserAvatar user={peerUser} size="xs" className="shrink-0 ring-1 ring-primary/15" alt="" />
+        <UserAvatar user={avatarUser} size="xs" className="shrink-0 ring-1 ring-primary/15" alt="" />
         {recalledBubble}
         {hoverTime ? (
           <span className="shrink-0 self-end pb-1 text-[10px] leading-none tabular-nums text-primary/35 opacity-0 transition-opacity duration-150 group-hover/message-row:opacity-100">
@@ -377,29 +560,40 @@ function MessageRow({
     ? `min-w-0 max-w-full rounded-3xl rounded-br-2xl bg-primary px-3.5 py-2.5 text-sm text-light shadow-sm ${pendingClass}`
     : `min-w-0 max-w-full rounded-3xl rounded-bl-2xl bg-gray-100 px-3.5 py-2.5 text-sm text-primary shadow-sm ${pendingClass}`;
 
-  const avatar = isMine ? (
-    <UserAvatar user={user} size="xs" className="shrink-0 ring-1 ring-primary/15" alt="" />
-  ) : (
-    <UserAvatar user={peerUser} size="xs" className="shrink-0 ring-1 ring-primary/15" alt="" />
+  const avatar = (
+    <UserAvatar user={avatarUser} size="xs" className="shrink-0 ring-1 ring-primary/15" alt="" />
   );
 
   const hoverTimeAside = hoverTime ? (
-    <span className="shrink-0 self-end pb-1 text-[10px] leading-none tabular-nums text-primary/35 opacity-0 transition-opacity duration-150 group-hover/message-row:opacity-100">
+    <span className="shrink-0 self-end pb-1 text-[10px] leading-none tabular-nums text-primary/35 opacity-0 transition-opacity duration-150 group-hover/message-row:opacity-100 group-hover:opacity-100">
       {hoverTime}
     </span>
   ) : null;
 
-  const contentColumn = (
-    <div
-      className={`flex min-w-0 max-w-[80%] flex-col gap-1 ${isMine ? "items-end" : "items-start"}`}
-      onContextMenu={handleContextMenu}
-      onTouchStart={handleTouchStart}
-      onTouchEnd={handleTouchEnd}
-      onTouchCancel={handleTouchEnd}
-    >
-      {!isMine && isGroupChat && senderLabel ? (
-        <p className="mb-0.5 max-w-full truncate px-1 text-[10px] font-medium text-[#003B44]/55">{senderLabel}</p>
-      ) : null}
+  const actionBar = (
+    <MessageActionBar
+      message={message}
+      isMine={isMine}
+      onReply={onReply}
+      onUnsend={onUnsend}
+      onRemoveForMe={onRemoveForMe}
+    />
+  );
+
+  const quoteEl = message.replyTo ? (
+    <ReplyQuote
+      replyTo={message.replyTo}
+      isMine={isMine}
+      onJump={onScrollToReply}
+      currentUserId={currentUserId}
+      friend={friend}
+      memberMap={memberMap}
+    />
+  ) : null;
+
+  const messageBody = (
+    <div className={`flex w-fit min-w-0 max-w-[80%] flex-col gap-1 ${isMine ? "items-end" : "items-start"}`}>
+      {quoteEl && (hasImage || hasFile) && !hasText ? quoteEl : null}
       {hasImage ? (
         <button
           type="button"
@@ -423,69 +617,49 @@ function MessageRow({
       ) : null}
       {hasText ? (
         <div className={bubbleClass}>
+          {quoteEl && (hasText || (!hasImage && !hasFile)) ? quoteEl : null}
           <p className="break-all whitespace-pre-wrap [overflow-wrap:anywhere] leading-snug">{message.content}</p>
         </div>
       ) : null}
+      {!hasText && quoteEl && !hasImage && !hasFile ? quoteEl : null}
     </div>
   );
 
-  const actionMenuEl = actionMenu ? (
-    <div
-      className="fixed z-50 min-w-[168px] overflow-hidden rounded-xl border border-[#00BFA5]/25 bg-[#003B44] py-1 shadow-xl"
-      style={{ left: actionMenu.x, top: actionMenu.y }}
-      onClick={(e) => e.stopPropagation()}
-      role="menu"
-    >
-      <button
-        type="button"
-        role="menuitem"
-        className="block w-full px-3 py-2 text-left text-sm text-light transition hover:bg-[#00BFA5]/20"
-        onClick={() => {
-          onRecall(message);
-          setActionMenu(null);
-        }}
-      >
-        Thu hồi
-      </button>
-      <button
-        type="button"
-        role="menuitem"
-        className="block w-full px-3 py-2 text-left text-sm text-light/90 transition hover:bg-[#00BFA5]/20"
-        onClick={() => {
-          onDeleteSelf(message);
-          setActionMenu(null);
-        }}
-      >
-        Xóa phía tôi
-      </button>
-    </div>
-  ) : null;
+  const senderNameEl =
+    !isMine && isGroupChat && senderLabel ? (
+      <p className="mb-0.5 max-w-[min(92%,480px)] truncate px-1 text-[10px] font-medium text-[#003B44]/55">{senderLabel}</p>
+    ) : null;
 
   if (isMine) {
     return (
-      <>
-        <div className="flex min-w-0 max-w-[min(92%,480px)] flex-col items-end">
-          <div className="flex flex-row items-end justify-end gap-2">
+      <div className="group flex w-full flex-col items-end">
+        <div className="flex max-w-[min(92%,480px)] flex-row items-end gap-1.5">
+          <div className="flex shrink-0 items-center gap-0.5 self-end">
             {hoverTimeAside}
-            {contentColumn}
-            {avatar}
+            {actionBar}
           </div>
-          {showSeenReceipt ? <SeenReceipt user={readReceiptUser} /> : null}
+          {messageBody}
+          {avatar}
         </div>
-        {actionMenuEl}
-      </>
+        {showSeenReceipt ? <SeenReceipt user={readReceiptUser} /> : null}
+      </div>
     );
   }
 
   return (
-    <>
-      <div className="flex min-w-0 max-w-[min(92%,480px)] flex-row items-end justify-start gap-2">
-        {avatar}
-        {contentColumn}
-        {hoverTimeAside}
+    <div className="group flex max-w-[min(92%,480px)] flex-row items-end gap-1.5">
+      {avatar}
+      <div className="flex min-w-0 flex-col items-start">
+        {senderNameEl}
+        <div className="flex items-end gap-0.5">
+          {messageBody}
+          <div className="flex shrink-0 items-center gap-0.5 self-end">
+            {actionBar}
+            {hoverTimeAside}
+          </div>
+        </div>
       </div>
-      {actionMenuEl}
-    </>
+    </div>
   );
 }
 
@@ -499,8 +673,10 @@ function ChatWindow({ friend, group, currentUserId }) {
   const [attachments, setAttachments] = useState([]);
   const [sending, setSending] = useState(false);
   const [lightboxUrl, setLightboxUrl] = useState("");
+  const [replyTarget, setReplyTarget] = useState(null);
   const bottomRef = useRef(null);
   const fileInputRef = useRef(null);
+  const messageRefs = useRef({});
   const attachmentsRef = useRef(attachments);
 
   useEffect(() => {
@@ -551,6 +727,27 @@ function ChatWindow({ friend, group, currentUserId }) {
     });
     return () => cancelAnimationFrame(id);
   }, [chatId, loadingHistory]);
+
+  const scrollToMessage = useCallback((messageId) => {
+    const el = messageRefs.current[String(messageId)];
+    if (el) {
+      el.scrollIntoView({ behavior: "smooth", block: "center" });
+      el.classList.add("ring-2", "ring-[#00BFA5]/50", "rounded-2xl");
+      window.setTimeout(() => {
+        el.classList.remove("ring-2", "ring-[#00BFA5]/50", "rounded-2xl");
+      }, 1600);
+    }
+  }, []);
+
+  const handleReplyToMessage = useCallback((message) => {
+    if (!message || message.isRecalled || message.pending) return;
+    setReplyTarget(buildReplySnapshot(message));
+  }, []);
+
+  useEffect(() => {
+    setReplyTarget(null);
+    messageRefs.current = {};
+  }, [chatId]);
 
   useEffect(() => {
     if (!chatId) {
@@ -719,19 +916,28 @@ function ChatWindow({ friend, group, currentUserId }) {
     return res.data;
   };
 
-  const handleRecallMessage = (message) => {
-    if (!socket?.connected || !message?._id || message.pending) return;
-    socket.emit("delete_message", { messageId: String(message._id), mode: "everyone" });
-  };
+  /** Thu hồi (Unsend) — mode everyone, mọi người thấy placeholder */
+  const handleUnsendMessage = useCallback(
+    (message) => {
+      if (!socket?.connected || !message?._id || message.pending) return;
+      socket.emit("delete_message", { messageId: String(message._id), mode: "everyone" });
+    },
+    [socket]
+  );
 
-  const handleDeleteMessageForSelf = (message) => {
-    if (!socket?.connected || !message?._id || message.pending) return;
-    socket.emit("delete_message", { messageId: String(message._id), mode: "self" });
-  };
+  /** Xóa ở phía tôi (Remove) — mode self, thêm hiddenFor trên server */
+  const handleRemoveForMe = useCallback(
+    (message) => {
+      if (!socket?.connected || !message?._id || message.pending) return;
+      socket.emit("delete_message", { messageId: String(message._id), mode: "self" });
+    },
+    [socket]
+  );
 
   const emitChatMessage = ({ content = "", fileUrl = "", fileType = "", fileName = "" }) => {
     const tempId = `t-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
     const meId = String(currentUserId);
+    const replySnap = replyTarget ? { ...replyTarget } : null;
     const senderProfile = user
       ? {
           _id: meId,
@@ -755,6 +961,8 @@ function ChatWindow({ friend, group, currentUserId }) {
       isRead: false,
       isRecalled: false,
       hiddenFor: [],
+      replyTo: replySnap,
+      replyToId: replySnap?._id || "",
       senderName: isGroupChat ? displayUserName(user) : "",
       createdAt: new Date().toISOString(),
       pending: true
@@ -767,7 +975,8 @@ function ChatWindow({ friend, group, currentUserId }) {
       fileUrl,
       fileType,
       fileName,
-      tempId
+      tempId,
+      ...(replySnap?._id && !String(replySnap._id).startsWith("t-") ? { replyToId: replySnap._id } : {})
     });
   };
 
@@ -779,6 +988,7 @@ function ChatWindow({ friend, group, currentUserId }) {
 
     setSending(true);
     setDraft("");
+    const hadReply = Boolean(replyTarget);
 
     try {
       if (text) {
@@ -814,6 +1024,7 @@ function ChatWindow({ friend, group, currentUserId }) {
       }
     } finally {
       setSending(false);
+      if (hadReply) setReplyTarget(null);
     }
   };
 
@@ -942,30 +1153,48 @@ function ChatWindow({ friend, group, currentUserId }) {
               const shouldShowTimestampSeparator = isFirstMessage || isNewDay || isOverThirtyMinutes;
               const separatorText = formatVietnameseChatTime(m.createdAt);
               const hoverTime = formatHoverTime(m.createdAt);
-              const peerUser = resolvePeerUser(m, { user, friend, memberMap, currentUserId });
+              const avatarUser = resolveMessageAvatar(m, isMine, {
+                user,
+                friend,
+                memberMap,
+                currentUserId,
+                isGroupChat
+              });
+              const peerUser = avatarUser;
               const senderLabel = !isMine && isGroupChat ? groupSenderLabel(m, peerUser) : null;
 
               return (
-                <div key={String(m._id)} className="w-full">
+                <div
+                  key={String(m._id)}
+                  ref={(el) => {
+                    if (el) messageRefs.current[String(m._id)] = el;
+                  }}
+                  className="w-full scroll-mt-4 transition-[box-shadow] duration-300"
+                >
                   {shouldShowTimestampSeparator && separatorText ? (
                     <div className="my-4 text-center text-[11px] text-primary/40">{separatorText}</div>
                   ) : null}
 
                   <div
-                    className={`group/message-row flex w-full ${isMine ? "justify-end" : "justify-start"}`}
+                    className={`group/message-row group flex w-full ${isMine ? "justify-end" : "justify-start"}`}
+                    data-message-row-root
                   >
                     <MessageRow
                       message={m}
                       isMine={isMine}
                       hoverTime={hoverTime}
                       onOpenImage={setLightboxUrl}
-                      user={user}
-                      peerUser={peerUser}
+                      avatarUser={avatarUser}
                       senderLabel={senderLabel}
                       isGroupChat={isGroupChat}
                       readReceiptUser={!isGroupChat ? friend : null}
-                      onRecall={handleRecallMessage}
-                      onDeleteSelf={handleDeleteMessageForSelf}
+                      onUnsend={handleUnsendMessage}
+                      onRemoveForMe={handleRemoveForMe}
+                      onReply={handleReplyToMessage}
+                      onScrollToReply={scrollToMessage}
+                      currentUserId={currentUserId}
+                      friend={friend}
+                      memberMap={memberMap}
                       showSeenReceipt={
                         !isGroupChat &&
                         isMine &&
@@ -991,6 +1220,27 @@ function ChatWindow({ friend, group, currentUserId }) {
             onAddMore={openFilePicker}
             disabled={sending || !connected}
           />
+
+          {replyTarget ? (
+            <div className="mb-2 flex items-start gap-2 rounded-xl border-l-4 border-[#00BFA5] bg-[#003B44]/[0.06] px-3 py-2">
+              <div className="min-w-0 flex-1">
+                <p className="text-xs font-semibold text-[#00BFA5]">
+                  Đang trả lời {replyAuthorName(replyTarget, currentUserId, { friend, memberMap })}
+                </p>
+                <p className="mt-0.5 truncate text-xs text-[#003B44]/55">
+                  {replyContentLabel(replyTarget)}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setReplyTarget(null)}
+                className="shrink-0 rounded-lg p-1 text-[#003B44]/50 transition hover:bg-[#003B44]/10 hover:text-[#003B44]"
+                aria-label="Hủy trả lời"
+              >
+                <X size={16} />
+              </button>
+            </div>
+          ) : null}
 
           <div className="flex items-center gap-2 rounded-2xl border border-[#003B44]/15 bg-accent/50 p-2 pl-2 shadow-sm focus-within:shadow-md focus-within:ring-2 focus-within:ring-[#00BFA5]/40">
             <button

@@ -51,6 +51,7 @@ export default function GlobalMessageNotifier() {
   const { socket, activeChatFriendId, activeChatGroupId } = useSocket();
   const friendsRef = useRef([]);
   const groupsRef = useRef([]);
+  const conversationsRef = useRef([]);
   const audioRef = useRef(null);
   const currentUserIdRef = useRef("");
 
@@ -99,13 +100,28 @@ export default function GlobalMessageNotifier() {
       }
     };
 
+    const loadConversations = async () => {
+      try {
+        const res = await api.get("/conversations");
+        conversationsRef.current = res.data?.conversations || [];
+      } catch {
+        conversationsRef.current = [];
+      }
+    };
+
+    const onGroupsUpdated = () => {
+      loadGroups();
+      loadConversations();
+    };
+
     loadFriends();
     loadGroups();
+    loadConversations();
     window.addEventListener("social-updated", loadFriends);
-    window.addEventListener("groups-updated", loadGroups);
+    window.addEventListener("groups-updated", onGroupsUpdated);
     return () => {
       window.removeEventListener("social-updated", loadFriends);
-      window.removeEventListener("groups-updated", loadGroups);
+      window.removeEventListener("groups-updated", onGroupsUpdated);
     };
   }, [isAuthenticated]);
 
@@ -170,8 +186,9 @@ export default function GlobalMessageNotifier() {
       const activeGroupId = activeChatGroupId ? String(activeChatGroupId) : null;
       if (activeGroupId && gid === activeGroupId) return;
 
-      const group = groupsRef.current.find((g) => groupKey(g) === gid);
-      const groupName = group?.name || "Nhóm chat";
+      const conv = conversationsRef.current.find((c) => c.type === "group" && String(c.id) === gid);
+      const group = groupsRef.current.find((g) => groupKey(g) === gid) || conv?.group;
+      const groupName = conv?.title || group?.name || "Nhóm chat";
 
       let senderName = msg.senderName || "";
       if (!senderName && msg.sender && typeof msg.sender === "object" && msg.sender.firstName) {
@@ -187,8 +204,7 @@ export default function GlobalMessageNotifier() {
       }
 
       const preview = messagePreview(msg);
-      const title = `${groupName} - ${senderName}`;
-      const body = preview;
+      const toastLine = `${groupName} - ${senderName}: ${preview}`;
 
       playNotificationSound(audioRef);
 
@@ -202,8 +218,7 @@ export default function GlobalMessageNotifier() {
             }}
             className={toastClass}
           >
-            <span className="text-xs font-semibold text-[#00BFA5]">{title}</span>
-            <span className="mt-1 line-clamp-2 text-sm text-light/95">{body}</span>
+            <span className="line-clamp-3 text-sm font-medium text-[#00BFA5]">{toastLine}</span>
             <span className="mt-1.5 text-[10px] text-light/50">Nhấn để mở nhóm</span>
           </button>
         ),
@@ -252,13 +267,18 @@ export default function GlobalMessageNotifier() {
       );
     };
 
-    socket.on("new_message", onIncomingDm);
-    socket.on("new_message", onIncomingGroup);
+    const onConversationActivity = (event) => {
+      const msg = event.detail;
+      if (!msg) return;
+      if (msg.groupId) onIncomingGroup(msg);
+      else onIncomingDm(msg);
+    };
+
+    window.addEventListener("conversation-activity", onConversationActivity);
     socket.on("added_to_group", onAddedToGroup);
 
     return () => {
-      socket.off("new_message", onIncomingDm);
-      socket.off("new_message", onIncomingGroup);
+      window.removeEventListener("conversation-activity", onConversationActivity);
       socket.off("added_to_group", onAddedToGroup);
     };
   }, [socket, activeChatFriendId, activeChatGroupId, navigate]);

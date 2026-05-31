@@ -4,7 +4,7 @@ const Group = require("../models/Group");
 const Message = require("../models/Message");
 const User = require("../models/User");
 const authMiddleware = require("../middleware/authMiddleware");
-const { normalizeMessagePayload } = require("../utils/messagePayload");
+const { normalizeMessagePayload, REPLY_TO_POPULATE } = require("../utils/messagePayload");
 const { notifyMembersAddedToGroup } = require("../socket");
 
 const router = express.Router();
@@ -113,6 +113,7 @@ router.get("/:groupId/messages", authMiddleware, async (req, res) => {
     const messages = await Message.find({ groupId })
       .sort({ createdAt: 1 })
       .populate("sender", memberFields)
+      .populate(REPLY_TO_POPULATE)
       .lean();
 
     const normalized = messages

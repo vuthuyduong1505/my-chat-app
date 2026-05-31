@@ -5,7 +5,11 @@ const User = require("../models/User");
 const authMiddleware = require("../middleware/authMiddleware");
 const cloudinary = require("../config/cloudinary");
 const { uploadChatFile, decodeMulterFileName } = require("../middleware/uploadMiddleware");
-const { normalizeMessagePayload } = require("../utils/messagePayload");
+const {
+  normalizeMessagePayload,
+  SENDER_PROFILE_FIELDS,
+  REPLY_TO_POPULATE
+} = require("../utils/messagePayload");
 
 const router = express.Router();
 
@@ -44,6 +48,8 @@ router.get("/:friendId", authMiddleware, async (req, res) => {
       ]
     })
       .sort({ createdAt: 1 })
+      .populate("sender", SENDER_PROFILE_FIELDS)
+      .populate(REPLY_TO_POPULATE)
       .lean();
 
     const normalized = messages

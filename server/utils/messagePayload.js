@@ -1,5 +1,11 @@
 const SENDER_PROFILE_FIELDS = "firstName lastName email avatar";
 
+/** Populate lồng nhau: tin trả lời → tin gốc → người gửi tin gốc */
+const REPLY_TO_POPULATE = {
+  path: "replyTo",
+  populate: { path: "sender", select: SENDER_PROFILE_FIELDS }
+};
+
 function buildSenderFields(rawSender) {
   if (!rawSender) {
     return { senderId: "", sender: "" };
@@ -28,11 +34,35 @@ function senderDisplayName(sender) {
   return `${sender.firstName || ""} ${sender.lastName || ""}`.trim() || sender.email || "";
 }
 
+function normalizeReplyTo(rawReply) {
+  if (!rawReply) return null;
+
+  if (typeof rawReply === "object" && (rawReply._id || rawReply.id)) {
+    const { senderId, sender } = buildSenderFields(rawReply.sender);
+    const senderName = typeof sender === "object" ? senderDisplayName(sender) : "";
+
+    return {
+      _id: String(rawReply._id || rawReply.id),
+      content: rawReply.content || "",
+      fileUrl: rawReply.fileUrl || "",
+      fileType: rawReply.fileType || "",
+      fileName: rawReply.fileName || "",
+      isRecalled: Boolean(rawReply.isRecalled),
+      sender,
+      senderId,
+      ...(senderName ? { senderName } : {})
+    };
+  }
+
+  return { _id: String(rawReply) };
+}
+
 function normalizeMessagePayload(doc) {
   if (!doc) return null;
 
   const { senderId, sender } = buildSenderFields(doc.sender);
   const senderName = typeof sender === "object" ? senderDisplayName(sender) : "";
+  const replyTo = normalizeReplyTo(doc.replyTo);
 
   return {
     _id: doc._id,
@@ -47,6 +77,8 @@ function normalizeMessagePayload(doc) {
     isRead: Boolean(doc.isRead),
     isRecalled: Boolean(doc.isRecalled),
     hiddenFor: (doc.hiddenFor || []).map(String),
+    replyTo,
+    replyToId: replyTo?._id || (doc.replyTo ? String(doc.replyTo) : ""),
     createdAt: doc.createdAt,
     updatedAt: doc.updatedAt,
     ...(senderName ? { senderName } : {})
@@ -56,5 +88,7 @@ function normalizeMessagePayload(doc) {
 module.exports = {
   normalizeMessagePayload,
   SENDER_PROFILE_FIELDS,
-  senderDisplayName
+  REPLY_TO_POPULATE,
+  senderDisplayName,
+  normalizeReplyTo
 };
