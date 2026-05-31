@@ -5,6 +5,7 @@ const User = require("../models/User");
 const authMiddleware = require("../middleware/authMiddleware");
 const cloudinary = require("../config/cloudinary");
 const { uploadChatFile, decodeMulterFileName } = require("../middleware/uploadMiddleware");
+const { normalizeMessagePayload } = require("../utils/messagePayload");
 
 const router = express.Router();
 
@@ -40,17 +41,9 @@ router.get("/:friendId", authMiddleware, async (req, res) => {
       .sort({ createdAt: 1 })
       .lean();
 
-    const normalized = messages.map((m) => ({
-      _id: m._id,
-      sender: String(m.sender),
-      receiver: String(m.receiver),
-      content: m.content,
-      fileUrl: m.fileUrl || "",
-      fileType: m.fileType || "",
-      fileName: m.fileName || "",
-      createdAt: m.createdAt,
-      updatedAt: m.updatedAt
-    }));
+    const normalized = messages
+      .filter((m) => !(m.hiddenFor || []).some((id) => String(id) === String(me)))
+      .map((m) => normalizeMessagePayload(m));
 
     return res.status(200).json({ messages: normalized });
   } catch (error) {

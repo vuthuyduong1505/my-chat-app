@@ -31,7 +31,24 @@ const messageSchema = new mongoose.Schema(
       type: String,
       trim: true,
       default: ""
-    }
+    },
+    /** true khi người nhận đã mở/đọc tin (dùng cho trạng thái "Đã xem" phía người gửi) */
+    isRead: {
+      type: Boolean,
+      default: false
+    },
+    /** Thu hồi cho cả hai phía — nội dung thay bằng placeholder */
+    isRecalled: {
+      type: Boolean,
+      default: false
+    },
+    /** Danh sách userId đã xóa tin chỉ phía mình */
+    hiddenFor: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "User"
+      }
+    ]
   },
   {
     timestamps: true //Thời gian tạo và cập nhật
@@ -39,6 +56,7 @@ const messageSchema = new mongoose.Schema(
 );
 
 messageSchema.path("content").validate(function validateContentOrFile(content) {
+  if (this.isRecalled) return true;
   const hasText = typeof content === "string" && content.trim().length > 0;
   const hasFile = typeof this.fileUrl === "string" && this.fileUrl.trim().length > 0;
   return hasText || hasFile;

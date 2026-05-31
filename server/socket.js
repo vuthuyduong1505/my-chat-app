@@ -3,6 +3,9 @@ const mongoose = require("mongoose");
 const { Server } = require("socket.io");
 const Message = require("./models/Message");
 const User = require("./models/User");
+const { normalizeMessagePayload } = require("./utils/messagePayload");
+
+const RECALLED_PLACEHOLDER = "Tin nhắn đã bị thu hồi";
 
 function chatRoomId(userIdA, userIdB) {
   const a = String(userIdA);
@@ -118,21 +121,85 @@ function attachSocketIO(httpServer) {
         });
 
         const payload = {
-          _id: doc._id,
-          sender: String(doc.sender),
-          receiver: String(doc.receiver),
-          content: doc.content,
-          fileUrl: doc.fileUrl || "",
-          fileType: doc.fileType || "",
-          fileName: doc.fileName || "",
-          createdAt: doc.createdAt,
-          updatedAt: doc.updatedAt,
+          ...normalizeMessagePayload(doc),
           ...(tempId ? { tempId } : {})
         };
 
         // Gửi qua phòng user để người nhận luôn nhận được tin (badge, toast) dù chưa mở khung chat đó
         io.to(userRoomId(receiverId)).emit("new_message", payload);
         io.to(userRoomId(userId)).emit("new_message", payload);
+      } catch {
+        /* ignore */
+      }
+    });
+
+    /**
+     * Cơ chế "Đã xem":
+     * - Người NHẬN (reader) mở khung chat hoặc đang xem chat → emit mark_as_read({ friendId: người gửi }).
+     * - Server đánh dấu isRead=true cho mọi tin do friendId gửi tới reader (sender=friend, receiver=reader).
+     * - Phát messages_read tới người gửi để họ hiển thị "Đã xem" dưới tin cuối cùng của mình.
+     */
+    socket.on("mark_as_read", async ({ friendId }) => {
+      try {
+        if (!friendId || !mongoose.Types.ObjectId.isValid(friendId)) return;
+
+        const readerId = userId;
+        const user = await User.findById(readerId).select("friends").lean();
+        if (!user) return;
+        const isFriend = (user.friends || []).some((id) => String(id) === String(friendId));
+        if (!isFriend) return;
+
+        const result = await Message.updateMany(
+          {
+            sender: friendId,
+            receiver: readerId,
+            isRead: false,
+            isRecalled: false
+          },
+          { $set: { isRead: true } }
+        );
+
+        if (result.modifiedCount === 0) return;
+
+        const readPayload = { readBy: String(readerId), peerId: String(friendId) };
+        io.to(userRoomId(friendId)).emit("messages_read", readPayload);
+        io.to(userRoomId(readerId)).emit("messages_read", readPayload);
+      } catch {
+        /* ignore */
+      }
+    });
+
+    socket.on("delete_message", async ({ messageId, mode }) => {
+      try {
+        if (!messageId || !mongoose.Types.ObjectId.isValid(messageId)) return;
+        if (!["everyone", "self"].includes(mode)) return;
+
+        const doc = await Message.findById(messageId);
+        if (!doc) return;
+
+        const isSender = String(doc.sender) === String(userId);
+        const isParticipant =
+          String(doc.sender) === String(userId) || String(doc.receiver) === String(userId);
+        if (!isParticipant) return;
+
+        if (mode === "everyone") {
+          if (!isSender || doc.isRecalled) return;
+          doc.isRecalled = true;
+          doc.content = RECALLED_PLACEHOLDER;
+          doc.fileUrl = "";
+          doc.fileType = "";
+          doc.fileName = "";
+        } else {
+          const hidden = (doc.hiddenFor || []).map(String);
+          if (!hidden.includes(String(userId))) {
+            doc.hiddenFor.push(userId);
+          }
+        }
+
+        await doc.save();
+        const payload = normalizeMessagePayload(doc);
+        io.to(userRoomId(doc.sender)).emit("message_updated", payload);
+        io.to(userRoomId(doc.receiver)).emit("message_updated", payload);
       } catch {
         /* ignore */
       }

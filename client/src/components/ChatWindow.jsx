@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FileText, Loader2, MessageCircle, Paperclip, Plus, Send, X } from "lucide-react";
 import toast from "react-hot-toast";
 import api from "../api";
@@ -203,7 +203,120 @@ function AttachmentPreviewStrip({ attachments, onRemove, onAddMore, disabled }) 
   );
 }
 
-function MessageRow({ message, isMine, hoverTime, onOpenImage, user, friend }) {
+const RECALLED_TEXT = "Tin nhắn đã bị thu hồi";
+
+function SeenReceipt({ friend }) {
+  const initial = (friend?.firstName || friend?.email || "?")[0]?.toUpperCase();
+
+  return (
+    <div className="mr-10 mt-px flex items-center justify-end gap-0.5 self-end">
+      {friend?.avatar ? (
+        <img
+          src={friend.avatar}
+          alt=""
+          className="h-3 w-3 shrink-0 rounded-full object-cover ring-1 ring-[#00BFA5]/30"
+        />
+      ) : (
+        <span className="flex h-3 w-3 shrink-0 items-center justify-center rounded-full bg-[#003B44]/12 text-[6px] font-semibold leading-none text-[#003B44]/65">
+          {initial}
+        </span>
+      )}
+      <span className="text-[8px] leading-none text-[#003B44]/40">Đã xem</span>
+    </div>
+  );
+}
+
+function MessageRow({
+  message,
+  isMine,
+  hoverTime,
+  onOpenImage,
+  user,
+  friend,
+  onRecall,
+  onDeleteSelf,
+  showSeenReceipt
+}) {
+  const [actionMenu, setActionMenu] = useState(null);
+  const longPressTimerRef = useRef(null);
+
+  const openActionMenu = (clientX, clientY) => {
+    if (!isMine || message.isRecalled || message.pending) return;
+    setActionMenu({ x: clientX, y: clientY });
+  };
+
+  const handleContextMenu = (e) => {
+    e.preventDefault();
+    openActionMenu(e.clientX, e.clientY);
+  };
+
+  const handleTouchStart = (e) => {
+    if (!isMine || message.isRecalled || message.pending) return;
+    longPressTimerRef.current = window.setTimeout(() => {
+      const touch = e.touches[0];
+      openActionMenu(touch.clientX, touch.clientY);
+    }, 500);
+  };
+
+  const handleTouchEnd = () => {
+    if (longPressTimerRef.current) {
+      clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+  };
+
+  useEffect(() => {
+    if (!actionMenu) return undefined;
+    const close = () => setActionMenu(null);
+    window.addEventListener("click", close);
+    window.addEventListener("scroll", close, true);
+    return () => {
+      window.removeEventListener("click", close);
+      window.removeEventListener("scroll", close, true);
+    };
+  }, [actionMenu]);
+
+  if (message.isRecalled) {
+    const recalledBubble = (
+      <div
+        className={`min-w-0 max-w-[80%] rounded-3xl px-3.5 py-2.5 text-sm italic shadow-sm ${
+          isMine ? "rounded-br-2xl bg-[#003B44]/75 text-light/80" : "rounded-bl-2xl bg-gray-200 text-[#003B44]/55"
+        }`}
+      >
+        {RECALLED_TEXT}
+      </div>
+    );
+
+    if (isMine) {
+      return (
+        <div className="ml-auto flex w-full min-w-0 max-w-[min(92%,480px)] flex-col items-end">
+          <div className="flex items-end justify-end gap-2">
+            {hoverTime ? (
+              <span className="shrink-0 self-end pb-1 text-[10px] leading-none tabular-nums text-primary/35 opacity-0 transition-opacity duration-150 group-hover/message-row:opacity-100">
+                {hoverTime}
+              </span>
+            ) : null}
+            {recalledBubble}
+            <UserAvatar user={user} size="xs" className="shrink-0 ring-1 ring-primary/15" alt="" />
+          </div>
+          {showSeenReceipt ? <SeenReceipt friend={friend} /> : null}
+        </div>
+      );
+    }
+
+    return (
+      <div className="flex w-full min-w-0 max-w-[min(92%,480px)] items-end justify-start gap-2">
+        <UserAvatar user={friend} size="xs" className="shrink-0 ring-1 ring-primary/15" alt="" />
+        {recalledBubble}
+        {hoverTime ? (
+          <span className="shrink-0 self-end pb-1 text-[10px] leading-none tabular-nums text-primary/35 opacity-0 transition-opacity duration-150 group-hover/message-row:opacity-100">
+            {hoverTime}
+          </span>
+        ) : null}
+      </div>
+    );
+  }
+
   const hasImage = message.fileType === "image" && message.fileUrl;
   const hasFile = message.fileType === "file" && message.fileUrl;
   const hasText = Boolean(message.content?.trim());
@@ -228,7 +341,13 @@ function MessageRow({ message, isMine, hoverTime, onOpenImage, user, friend }) {
   ) : null;
 
   const contentColumn = (
-    <div className={`flex min-w-0 max-w-[80%] flex-col gap-1 ${isMine ? "items-end" : "items-start"}`}>
+    <div
+      className={`flex min-w-0 max-w-[80%] flex-col gap-1 ${isMine ? "items-end" : "items-start"}`}
+      onContextMenu={handleContextMenu}
+      onTouchStart={handleTouchStart}
+      onTouchEnd={handleTouchEnd}
+      onTouchCancel={handleTouchEnd}
+    >
       {hasImage ? (
         <button
           type="button"
@@ -258,22 +377,63 @@ function MessageRow({ message, isMine, hoverTime, onOpenImage, user, friend }) {
     </div>
   );
 
+  const actionMenuEl = actionMenu ? (
+    <div
+      className="fixed z-50 min-w-[168px] overflow-hidden rounded-xl border border-[#00BFA5]/25 bg-[#003B44] py-1 shadow-xl"
+      style={{ left: actionMenu.x, top: actionMenu.y }}
+      onClick={(e) => e.stopPropagation()}
+      role="menu"
+    >
+      <button
+        type="button"
+        role="menuitem"
+        className="block w-full px-3 py-2 text-left text-sm text-light transition hover:bg-[#00BFA5]/20"
+        onClick={() => {
+          onRecall(message);
+          setActionMenu(null);
+        }}
+      >
+        Thu hồi
+      </button>
+      <button
+        type="button"
+        role="menuitem"
+        className="block w-full px-3 py-2 text-left text-sm text-light/90 transition hover:bg-[#00BFA5]/20"
+        onClick={() => {
+          onDeleteSelf(message);
+          setActionMenu(null);
+        }}
+      >
+        Xóa phía tôi
+      </button>
+    </div>
+  ) : null;
+
   if (isMine) {
     return (
-      <div className="ml-auto flex w-full min-w-0 max-w-[min(92%,480px)] items-end justify-end gap-2">
-        {hoverTimeAside}
-        {contentColumn}
-        {avatar}
-      </div>
+      <>
+        <div className="ml-auto flex w-full min-w-0 max-w-[min(92%,480px)] flex-col items-end">
+          <div className="flex items-end justify-end gap-2">
+            {hoverTimeAside}
+            {contentColumn}
+            {avatar}
+          </div>
+          {showSeenReceipt ? <SeenReceipt friend={friend} /> : null}
+        </div>
+        {actionMenuEl}
+      </>
     );
   }
 
   return (
-    <div className="flex w-full min-w-0 max-w-[min(92%,480px)] items-end justify-start gap-2">
-      {avatar}
-      {contentColumn}
-      {hoverTimeAside}
-    </div>
+    <>
+      <div className="flex w-full min-w-0 max-w-[min(92%,480px)] items-end justify-start gap-2">
+        {avatar}
+        {contentColumn}
+        {hoverTimeAside}
+      </div>
+      {actionMenuEl}
+    </>
   );
 }
 
@@ -360,6 +520,23 @@ function ChatWindow({ friend, currentUserId }) {
     };
   }, [socket, friendId]);
 
+  /**
+   * Cơ chế "Đã xem" (báo cáo):
+   * 1. Mỗi tin gửi đi lưu isRead=false trên server.
+   * 2. Khi người nhận mở khung chat (hoặc đang xem chat và có tin mới), client emit mark_as_read.
+   * 3. Server gắn isRead=true cho tin do người kia gửi tới mình, rồi báo người gửi qua messages_read.
+   * 4. Người gửi hiển thị "Đã xem" dưới tin nhắn cuối cùng của mình nếu tin đó đã isRead.
+   */
+  const markAsRead = useCallback(() => {
+    if (!socket?.connected || !friendId) return;
+    socket.emit("mark_as_read", { friendId });
+  }, [socket, friendId]);
+
+  useEffect(() => {
+    if (!friendId || loadingHistory) return;
+    markAsRead();
+  }, [friendId, loadingHistory, markAsRead]);
+
   useEffect(() => {
     if (!socket || !friendId || !currentUserId) return undefined;
 
@@ -382,13 +559,48 @@ function ChatWindow({ friend, currentUserId }) {
         if (prev.some((m) => String(m._id) === String(msg._id))) return prev;
         return [...prev, msg];
       });
+
+      if (msg.sender === fid) {
+        markAsRead();
+      }
+    };
+
+    const onMessagesRead = ({ readBy }) => {
+      const me = String(currentUserId);
+      const fid = String(friendId);
+      if (String(readBy) !== fid) return;
+      setMessages((prev) =>
+        prev.map((m) => (String(m.sender) === me && String(m.receiver) === fid ? { ...m, isRead: true } : m))
+      );
+    };
+
+    const onMessageUpdated = (updated) => {
+      const me = String(currentUserId);
+      const fid = String(friendId);
+      const inConv =
+        (updated.sender === me && updated.receiver === fid) ||
+        (updated.receiver === me && updated.sender === fid);
+      if (!inConv) return;
+
+      if ((updated.hiddenFor || []).map(String).includes(me)) {
+        setMessages((prev) => prev.filter((m) => String(m._id) !== String(updated._id)));
+        return;
+      }
+
+      setMessages((prev) =>
+        prev.map((m) => (String(m._id) === String(updated._id) ? { ...m, ...updated, pending: false } : m))
+      );
     };
 
     socket.on("new_message", onNew);
+    socket.on("messages_read", onMessagesRead);
+    socket.on("message_updated", onMessageUpdated);
     return () => {
       socket.off("new_message", onNew);
+      socket.off("messages_read", onMessagesRead);
+      socket.off("message_updated", onMessageUpdated);
     };
-  }, [socket, friendId, currentUserId]);
+  }, [socket, friendId, currentUserId, markAsRead]);
 
   const revokePreview = (item) => {
     if (item?.previewUrl) URL.revokeObjectURL(item.previewUrl);
@@ -421,6 +633,16 @@ function ChatWindow({ friend, currentUserId }) {
     return res.data;
   };
 
+  const handleRecallMessage = (message) => {
+    if (!socket?.connected || !message?._id || message.pending) return;
+    socket.emit("delete_message", { messageId: String(message._id), mode: "everyone" });
+  };
+
+  const handleDeleteMessageForSelf = (message) => {
+    if (!socket?.connected || !message?._id || message.pending) return;
+    socket.emit("delete_message", { messageId: String(message._id), mode: "self" });
+  };
+
   const emitChatMessage = ({ content = "", fileUrl = "", fileType = "", fileName = "" }) => {
     const tempId = `t-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
     const optimistic = {
@@ -432,6 +654,9 @@ function ChatWindow({ friend, currentUserId }) {
       fileUrl,
       fileType,
       fileName,
+      isRead: false,
+      isRecalled: false,
+      hiddenFor: [],
       createdAt: new Date().toISOString(),
       pending: true
     };
@@ -519,6 +744,20 @@ function ChatWindow({ friend, currentUserId }) {
   const hasQueuedAttachments = attachments.some((item) => item.status === "queued" || item.status === "error");
   const canSend = Boolean(draft.trim() || hasQueuedAttachments);
 
+  const visibleMessages = useMemo(() => {
+    const me = String(currentUserId);
+    return messages.filter((m) => !(m.hiddenFor || []).map(String).includes(me));
+  }, [messages, currentUserId]);
+
+  const lastMyMessageId = useMemo(() => {
+    const me = String(currentUserId);
+    for (let i = visibleMessages.length - 1; i >= 0; i -= 1) {
+      const m = visibleMessages[i];
+      if (String(m.sender) === me && !m.isRecalled && !m.pending) return String(m._id);
+    }
+    return null;
+  }, [visibleMessages, currentUserId]);
+
   const onlineUserSet = useMemo(
     () => (onlineUsers instanceof Set ? onlineUsers : new Set(Array.isArray(onlineUsers) ? onlineUsers.map(String) : [])),
     [onlineUsers]
@@ -581,12 +820,12 @@ function ChatWindow({ friend, currentUserId }) {
             <div className="flex justify-center py-10 text-primary/45">
               <Loader2 className="animate-spin" size={22} />
             </div>
-          ) : messages.length === 0 ? (
+          ) : visibleMessages.length === 0 ? (
             <p className="py-8 text-center text-sm text-primary/45">Chưa có tin nhắn nào</p>
           ) : (
-            messages.map((m, index) => {
+            visibleMessages.map((m, index) => {
               const isMine = String(m.sender) === String(currentUserId);
-              const previousMessage = index > 0 ? messages[index - 1] : null;
+              const previousMessage = index > 0 ? visibleMessages[index - 1] : null;
               const currentDate = new Date(m.createdAt);
               const previousDate = previousMessage ? new Date(previousMessage.createdAt) : null;
 
@@ -617,6 +856,11 @@ function ChatWindow({ friend, currentUserId }) {
                       onOpenImage={setLightboxUrl}
                       user={user}
                       friend={friend}
+                      onRecall={handleRecallMessage}
+                      onDeleteSelf={handleDeleteMessageForSelf}
+                      showSeenReceipt={
+                        isMine && lastMyMessageId === String(m._id) && Boolean(m.isRead) && !m.pending
+                      }
                     />
                   </div>
                 </div>
