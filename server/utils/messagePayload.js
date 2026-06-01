@@ -80,12 +80,17 @@ function normalizeMessagePayload(doc) {
   const senderName = typeof sender === "object" ? senderDisplayName(sender) : "";
   const replyTo = normalizeReplyTo(doc.replyTo);
 
+  let messageType = doc.messageType || "text";
+  if (!doc.messageType && doc.fileType === "image") messageType = "image";
+  else if (!doc.messageType && doc.fileType === "file") messageType = "file";
+
   return {
     _id: doc._id,
     sender,
     senderId,
     receiver: doc.receiver ? String(doc.receiver) : "",
     groupId: doc.groupId ? String(doc.groupId) : "",
+    messageType,
     content: doc.content || "",
     fileUrl: doc.fileUrl || "",
     fileType: doc.fileType || "",

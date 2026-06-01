@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Loader2, MoreHorizontal, Search } from "lucide-react";
+import toast from "react-hot-toast";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import api from "../api";
 import ChatWindow from "../components/ChatWindow";
@@ -118,13 +119,18 @@ function HomePage() {
     }
   }, [user]);
 
-  const loadConversations = useCallback(async () => {
-    setLoadingList(true);
+  const loadConversations = useCallback(async (options = {}) => {
+    const { silent = false } = options;
+    if (!silent) setLoadingList(true);
     try {
       const response = await api.get("/conversations");
       setConversations(sortConversationsByLastActivity(response.data?.conversations || []));
-    } catch {
-      setConversations([]);
+    } catch (err) {
+      console.error("loadConversations failed:", err);
+      if (!silent) {
+        setConversations([]);
+        toast.error(err?.response?.data?.message || "Không thể tải danh sách đoạn chat. Kiểm tra server đã chạy.");
+      }
     } finally {
       setLoadingList(false);
     }
@@ -135,7 +141,7 @@ function HomePage() {
   }, [currentUserId, loadConversations]);
 
   useEffect(() => {
-    const onGroupsUpdated = () => loadConversations();
+    const onGroupsUpdated = () => loadConversations({ silent: true });
     window.addEventListener("groups-updated", onGroupsUpdated);
     return () => window.removeEventListener("groups-updated", onGroupsUpdated);
   }, [loadConversations]);
@@ -288,6 +294,26 @@ function HomePage() {
     }
   };
 
+  const handleGroupChange = useCallback((updated) => {
+    setSelectedGroup(updated);
+    setConversations((prev) =>
+      prev.map((c) =>
+        c.type === "group" && String(c.id) === String(updated._id)
+          ? {
+              ...c,
+              title: updated.name || c.title,
+              group: { ...c.group, ...updated }
+            }
+          : c
+      )
+    );
+  }, []);
+
+  const handleLeaveGroup = useCallback(() => {
+    setSelectedGroup(null);
+    loadConversations();
+  }, [loadConversations]);
+
   const handleGroupCreated = (group) => {
     loadConversations();
     socket?.emit("refresh_group_rooms");
@@ -412,7 +438,10 @@ function HomePage() {
           <ChatWindow
             friend={isGroupRoute ? null : selectedFriend}
             group={isGroupRoute ? selectedGroup : null}
+            groupId={isGroupRoute ? groupId : undefined}
             currentUserId={currentUserId}
+            onGroupChange={handleGroupChange}
+            onLeaveGroup={handleLeaveGroup}
           />
         </div>
       </section>

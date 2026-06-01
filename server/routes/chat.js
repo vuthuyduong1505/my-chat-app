@@ -10,14 +10,43 @@ const {
   SENDER_PROFILE_FIELDS,
   REPLY_TO_POPULATE
 } = require("../utils/messagePayload");
+const {
+  classifyConversationMedia,
+  fetchDmMedia,
+  assertFriendship
+} = require("../utils/conversationMedia");
 
 const router = express.Router();
 
-async function assertFriendship(currentUserId, friendId) {
-  const user = await User.findById(currentUserId).select("friends").lean();
-  if (!user) return false;
-  return (user.friends || []).some((id) => String(id) === String(friendId));
-}
+/**
+ * GET /api/chat/:id/media — ảnh & file đã chia sẻ trong chat 1-1.
+ * Truy vấn tin có fileUrl, lọc theo fileType (image | file) trả về hai mảng.
+ */
+router.get("/:friendId/media", authMiddleware, async (req, res) => {
+  try {
+    const me = req.user.id;
+    const { friendId } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(friendId)) {
+      return res.status(400).json({ message: "ID bạn bè không hợp lệ." });
+    }
+    if (String(me) === String(friendId)) {
+      return res.status(400).json({ message: "Không thể xem media với chính mình." });
+    }
+
+    const ok = await assertFriendship(me, friendId);
+    if (!ok) {
+      return res.status(403).json({ message: "Bạn không có quyền xem tài nguyên cuộc trò chuyện này." });
+    }
+
+    const rows = await fetchDmMedia(me, friendId);
+    const { images, files } = classifyConversationMedia(rows);
+
+    return res.status(200).json({ images, files });
+  } catch {
+    return res.status(500).json({ message: "Lỗi máy chủ khi tải file phương tiện." });
+  }
+});
 
 router.get("/:friendId", authMiddleware, async (req, res) => {
   try {
@@ -31,8 +60,8 @@ router.get("/:friendId", authMiddleware, async (req, res) => {
       return res.status(400).json({ message: "Không thể xem cuộc trò chuyện với chính mình." });
     }
 
-    const ok = await assertFriendship(me, friendId);
-    if (!ok) {
+    const okFriend = await assertFriendship(me, friendId);
+    if (!okFriend) {
       return res.status(403).json({ message: "Bạn chỉ có thể xem tin nhắn với người trong danh sách bạn bè." });
     }
 

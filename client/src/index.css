@@ -8,3 +8,31 @@ body {
     sans-serif;
   background-color: #f0f7f7;
 }
+
+@keyframes modal-backdrop-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes modal-panel-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.modal-backdrop-in {
+  animation: modal-backdrop-in 0.22s ease-out forwards;
+}
+
+.modal-panel-in {
+  animation: modal-panel-in 0.24s ease-out forwards;
+}

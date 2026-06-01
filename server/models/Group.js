@@ -13,10 +13,15 @@ const groupSchema = new mongoose.Schema(
       trim: true,
       default: ""
     },
+    /** Người tạo nhóm (hiển thị nhãn "Người tạo nhóm" trên client) */
+    creator: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User"
+    },
+    /** Trường cũ — giữ để đọc nhóm tạo trước khi đổi sang creator */
     admin: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: "User",
-      required: true
+      ref: "User"
     },
     members: [
       {

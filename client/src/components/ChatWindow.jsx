@@ -1,7 +1,28 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { FileText, Loader2, MessageCircle, MoreVertical, Paperclip, Plus, Reply, Send, Users, X } from "lucide-react";
+import { useNavigate } from "react-router-dom";
+import {
+  Camera,
+  ChevronDown,
+  Edit2,
+  FileText,
+  Image,
+  Info,
+  Loader2,
+  LogOut,
+  MessageCircle,
+  MoreVertical,
+  Paperclip,
+  Plus,
+  Reply,
+  Search,
+  Send,
+  UserPlus,
+  Users,
+  X
+} from "lucide-react";
 import toast from "react-hot-toast";
 import api from "../api";
+import GroupAvatar from "./GroupAvatar";
 import UserAvatar from "./UserAvatar";
 import { getCallingName, getCallingNameFromFullName } from "../utils/displayName";
 import { useAuth } from "../context/AuthContext";
@@ -280,6 +301,7 @@ function buildGroupSeenAvatarMap(messages, currentUserId, memberMap) {
     .filter(
       ({ m }) =>
         isMessageMine(m, currentUserId) &&
+        !isSystemMessage(m) &&
         !m.pending &&
         !m.isRecalled &&
         m._id &&
@@ -613,7 +635,12 @@ function isSameMessageSender(messageA, messageB) {
  * Hai tin liền kề có thuộc cùng nhóm gom không?
  * Cần cùng người gửi VÀ khoảng cách thời gian ≤ 30 phút.
  */
+function isSystemMessage(message) {
+  return message?.messageType === "system";
+}
+
 function areMessagesInSameGroup(earlierMessage, laterMessage) {
+  if (isSystemMessage(earlierMessage) || isSystemMessage(laterMessage)) return false;
   if (!isSameMessageSender(earlierMessage, laterMessage)) return false;
   return getMessageTimeGapMs(laterMessage, earlierMessage) <= MESSAGE_GROUP_GAP_MS;
 }
@@ -854,10 +881,500 @@ function MessageRow({
   );
 }
 
-function ChatWindow({ friend, group, currentUserId }) {
+function getGroupCreatorId(group) {
+  const raw = group?.creator;
+  if (raw && typeof raw === "object") return String(raw._id || raw.id || "");
+  if (group?.creatorId) return String(group.creatorId);
+  if (raw) return String(raw);
+  return "";
+}
+
+function memberDisplayLabel(member) {
+  const name = `${member?.firstName || ""} ${member?.lastName || ""}`.trim();
+  return getCallingName(member) || name || member?.email || "Thành viên";
+}
+
+/** Họ tên đầy đủ (firstName + lastName) — dùng trong Sidebar thành viên nhóm */
+function memberFullName(member) {
+  const name = `${member?.firstName || ""} ${member?.lastName || ""}`.trim();
+  return name || member?.email || "Thành viên";
+}
+
+function personFullName(person) {
+  const name = `${person?.firstName || ""} ${person?.lastName || ""}`.trim();
+  return name || person?.email || "Người dùng";
+}
+
+/**
+ * Modal đổi tên nhóm — thay thế window.prompt.
+ * window.prompt dùng hộp thoại hệ thống (hiện "localhost", không khớp UI app).
+ * Luồng mới: bấm "Đổi tên" → setShowRenameModal(true) → modal React tùy chỉnh ở giữa màn hình.
+ */
+function RenameGroupModal({ open, initialName, onClose, onConfirm, submitting }) {
+  const [name, setName] = useState(initialName || "");
+
+  useEffect(() => {
+    if (open) setName(initialName || "");
+  }, [open, initialName]);
+
+  if (!open) return null;
+
+  const trimmed = name.trim();
+  const canConfirm = trimmed.length > 0 && trimmed !== (initialName || "").trim() && !submitting;
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    if (!canConfirm) return;
+    onConfirm(trimmed);
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-[70] flex items-center justify-center bg-[#003B44]/45 p-4 backdrop-blur-sm"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="rename-group-title"
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+    >
+      <div className="w-full max-w-sm overflow-hidden rounded-3xl bg-white shadow-2xl shadow-[#003B44]/20 ring-1 ring-[#003B44]/8">
+        <div className="border-b border-[#003B44]/8 px-6 py-5">
+          <h2 id="rename-group-title" className="text-lg font-semibold text-[#003B44]">
+            Đổi tên nhóm
+          </h2>
+          <p className="mt-1 text-sm text-[#003B44]/50">Tên mới sẽ hiển thị với mọi thành viên.</p>
+        </div>
+        <form onSubmit={handleSubmit} className="px-6 py-5">
+          <label className="mb-2 block text-xs font-medium text-[#003B44]/70" htmlFor="rename-group-input">
+            Tên nhóm
+          </label>
+          <input
+            id="rename-group-input"
+            type="text"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            maxLength={120}
+            autoFocus
+            placeholder="Nhập tên nhóm..."
+            className="w-full rounded-2xl border border-[#003B44]/12 bg-[#f8fafb] px-4 py-3 text-sm text-[#003B44] shadow-inner outline-none transition focus:border-[#00BFA5]/50 focus:bg-white focus:ring-2 focus:ring-[#00BFA5]/30"
+          />
+          <div className="mt-6 flex gap-3">
+            <button
+              type="button"
+              onClick={onClose}
+              disabled={submitting}
+              className="flex-1 rounded-2xl border border-[#003B44]/12 py-3 text-sm font-medium text-[#003B44]/70 transition hover:bg-[#003B44]/5 disabled:opacity-50"
+            >
+              Hủy
+            </button>
+            <button
+              type="submit"
+              disabled={!canConfirm}
+              className="flex flex-1 items-center justify-center gap-2 rounded-2xl bg-[#003B44] py-3 text-sm font-medium text-[#00BFA5] transition hover:opacity-90 disabled:opacity-45"
+            >
+              {submitting ? <Loader2 size={16} className="animate-spin" /> : null}
+              Xác nhận
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Lọc ảnh/file từ danh sách tin nhắn đang hiển thị (đồng bộ realtime với socket new_message).
+ * Quy tắc giống backend classifyConversationMedia: có fileUrl, không thu hồi, không phải system.
+ */
+function extractSharedMediaFromMessages(messageList) {
+  const images = [];
+  const files = [];
+
+  for (const m of messageList) {
+    if (isSystemMessage(m) || m.isRecalled || m.pending) continue;
+    const url = String(m.fileUrl || "").trim();
+    if (!url) continue;
+
+    const item = {
+      _id: String(m._id),
+      fileUrl: url,
+      fileName: m.fileName || "",
+      createdAt: m.createdAt
+    };
+
+    if (m.fileType === "image" || m.messageType === "image") {
+      images.push({ ...item, fileType: "image" });
+    } else if (m.fileType === "file" || m.messageType === "file") {
+      files.push({ ...item, fileType: "file" });
+    }
+  }
+
+  const byNewest = (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+  images.sort(byNewest);
+  files.sort(byNewest);
+
+  return { images, files };
+}
+
+/**
+ * Accordion "File phương tiện và File" trên Sidebar phải.
+ * - Tab ảnh: lưới 3 cột; tab file: danh sách tải xuống.
+ * - Cập nhật ngay khi messages thay đổi (tin ảnh/file mới qua socket).
+ */
+function ChatMediaGallerySection({ chatId, isGroupChat, messages, onOpenImage }) {
+  const [accordionOpen, setAccordionOpen] = useState(false);
+  const [mediaTab, setMediaTab] = useState("media");
+  const [loading, setLoading] = useState(false);
+  const [fetchedMedia, setFetchedMedia] = useState({ images: [], files: [] });
+
+  const fromMessages = useMemo(() => extractSharedMediaFromMessages(messages), [messages]);
+
+  const { images, files } = useMemo(() => {
+    const imageMap = new Map();
+    const fileMap = new Map();
+    [...fetchedMedia.images, ...fromMessages.images].forEach((item) => imageMap.set(item._id, item));
+    [...fetchedMedia.files, ...fromMessages.files].forEach((item) => fileMap.set(item._id, item));
+    const byNewest = (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+    return {
+      images: Array.from(imageMap.values()).sort(byNewest),
+      files: Array.from(fileMap.values()).sort(byNewest)
+    };
+  }, [fetchedMedia, fromMessages]);
+
+  useEffect(() => {
+    setAccordionOpen(false);
+    setMediaTab("media");
+    setFetchedMedia({ images: [], files: [] });
+  }, [chatId]);
+
+  useEffect(() => {
+    if (!accordionOpen || !chatId) return undefined;
+
+    let cancelled = false;
+    const load = async () => {
+      setLoading(true);
+      try {
+        const url = isGroupChat ? `/groups/${chatId}/media` : `/chat/${chatId}/media`;
+        const res = await api.get(url);
+        if (!cancelled) {
+          setFetchedMedia({
+            images: res.data?.images || [],
+            files: res.data?.files || []
+          });
+        }
+      } catch {
+        if (!cancelled) setFetchedMedia({ images: [], files: [] });
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
+
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [accordionOpen, chatId, isGroupChat]);
+
+  const emptyHint = "Chưa có tài nguyên nào được chia sẻ";
+
+  return (
+    <div className="border-b border-[#003B44]/8 py-2">
+      <button
+        type="button"
+        onClick={() => setAccordionOpen((v) => !v)}
+        className="flex w-full items-center justify-between px-6 py-4 text-left text-sm font-semibold text-[#003B44]"
+      >
+        <span>File phương tiện và File</span>
+        <ChevronDown
+          size={18}
+          className={`text-[#00BFA5] transition-transform duration-200 ${accordionOpen ? "rotate-180" : ""}`}
+        />
+      </button>
+
+      {accordionOpen ? (
+        <div className="space-y-3 px-4 pb-6">
+          <div className="flex gap-1 rounded-full bg-[#003B44]/5 p-1">
+            <button
+              type="button"
+              onClick={() => setMediaTab("media")}
+              className={`flex flex-1 items-center justify-center gap-1.5 rounded-full py-2 text-xs font-medium transition ${
+                mediaTab === "media"
+                  ? "bg-[#003B44] text-[#00BFA5]"
+                  : "text-[#003B44]/55 hover:text-[#003B44]"
+              }`}
+            >
+              <Image size={14} />
+              File phương tiện
+            </button>
+            <button
+              type="button"
+              onClick={() => setMediaTab("files")}
+              className={`flex flex-1 items-center justify-center gap-1.5 rounded-full py-2 text-xs font-medium transition ${
+                mediaTab === "files"
+                  ? "bg-[#003B44] text-[#00BFA5]"
+                  : "text-[#003B44]/55 hover:text-[#003B44]"
+              }`}
+            >
+              <FileText size={14} />
+              File
+            </button>
+          </div>
+
+          {loading ? (
+            <div className="flex justify-center py-6">
+              <Loader2 size={20} className="animate-spin text-[#00BFA5]" />
+            </div>
+          ) : mediaTab === "media" ? (
+            images.length === 0 ? (
+              <p className="py-4 text-center text-xs text-[#003B44]/45">{emptyHint}</p>
+            ) : (
+              <div className="grid grid-cols-3 gap-2">
+                {images.map((item) => (
+                  <button
+                    key={item._id}
+                    type="button"
+                    onClick={() => onOpenImage(item.fileUrl)}
+                    className="aspect-square overflow-hidden rounded-xl ring-1 ring-[#003B44]/10 transition hover:ring-[#00BFA5]/50"
+                  >
+                    <img src={item.fileUrl} alt="" className="h-full w-full object-cover" loading="lazy" />
+                  </button>
+                ))}
+              </div>
+            )
+          ) : files.length === 0 ? (
+            <p className="py-4 text-center text-xs text-[#003B44]/45">{emptyHint}</p>
+          ) : (
+            <ul className="max-h-56 space-y-1 overflow-y-auto">
+              {files.map((item) => (
+                <li key={item._id}>
+                  <button
+                    type="button"
+                    onClick={() => downloadFile(item.fileUrl, item.fileName)}
+                    className="flex w-full items-center gap-3 rounded-xl px-2 py-2.5 text-left transition hover:bg-[#003B44]/5"
+                  >
+                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[#003B44]/8 text-[#00BFA5]">
+                      <FileText size={16} />
+                    </span>
+                    <span className="min-w-0 flex-1 truncate text-sm text-[#003B44]">
+                      {item.fileName || "Tệp đính kèm"}
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * Modal xác nhận rời nhóm — thay window.confirm (hộp thoại hệ thống hiện "localhost").
+ * Quản lý đóng/mở: parent giữ state showLeaveConfirmModal.
+ * - Bấm "Rời khỏi nhóm" ở Sidebar → setShowLeaveConfirmModal(true).
+ * - "Hủy" hoặc click nền mờ → onClose() → setShowLeaveConfirmModal(false).
+ * - "Rời nhóm" → onConfirm() → gọi API; đóng modal khi xong hoặc khi lỗi (tùy parent).
+ */
+function LeaveGroupConfirmModal({ open, onClose, onConfirm, submitting }) {
+  if (!open) return null;
+
+  return (
+    <div
+      className="modal-backdrop-in fixed inset-0 z-[70] flex items-center justify-center bg-[#003B44]/45 p-4 backdrop-blur-sm"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="leave-group-title"
+      aria-describedby="leave-group-desc"
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget && !submitting) onClose();
+      }}
+    >
+      <div className="modal-panel-in w-full max-w-sm rounded-2xl bg-white p-6 shadow-2xl shadow-[#003B44]/25 ring-1 ring-[#003B44]/8">
+        <h2 id="leave-group-title" className="text-lg font-semibold text-[#003B44]">
+          Xác nhận rời nhóm
+        </h2>
+        <p id="leave-group-desc" className="mt-3 text-sm leading-relaxed text-[#003B44]/60">
+          Bạn có chắc chắn muốn rời khỏi nhóm này không? Hành động này không thể hoàn tác.
+        </p>
+        <div className="mt-6 flex gap-3">
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={submitting}
+            className="flex-1 rounded-2xl border border-[#003B44]/10 bg-[#f3f4f6] py-3 text-sm font-medium text-gray-500 transition hover:bg-gray-200 disabled:opacity-50"
+          >
+            Hủy
+          </button>
+          <button
+            type="button"
+            onClick={onConfirm}
+            disabled={submitting}
+            className="flex flex-1 items-center justify-center gap-2 rounded-2xl bg-[#e5e7eb] py-3 text-sm font-semibold text-gray-700 transition hover:bg-[#d1d5db] disabled:opacity-50"
+          >
+            {submitting ? <Loader2 size={16} className="animate-spin" /> : null}
+            Rời nhóm
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** Modal chọn bạn bè chưa có trong nhóm để thêm thành viên */
+function AddGroupMembersModal({ open, onClose, groupId, existingMemberIds, onAdded }) {
+  const [friends, setFriends] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [search, setSearch] = useState("");
+  const [selectedIds, setSelectedIds] = useState([]);
+  const [submitting, setSubmitting] = useState(false);
+
+  const existingSet = useMemo(() => new Set(existingMemberIds.map(String)), [existingMemberIds]);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const load = async () => {
+      setLoading(true);
+      try {
+        const res = await api.get("/users/friends");
+        setFriends(res.data?.friends || []);
+      } catch {
+        setFriends([]);
+        toast.error("Không thể tải danh sách bạn bè.");
+      } finally {
+        setLoading(false);
+      }
+    };
+    load();
+    return () => {
+      setSearch("");
+      setSelectedIds([]);
+    };
+  }, [open]);
+
+  const availableFriends = useMemo(
+    () => friends.filter((f) => !existingSet.has(String(f._id || f.id))),
+    [friends, existingSet]
+  );
+
+  const filtered = useMemo(() => {
+    const kw = search.trim().toLowerCase();
+    if (!kw) return availableFriends;
+    return availableFriends.filter((f) => {
+      const full = `${f.firstName || ""} ${f.lastName || ""}`.trim().toLowerCase();
+      return full.includes(kw) || (f.email || "").toLowerCase().includes(kw);
+    });
+  }, [availableFriends, search]);
+
+  const toggle = (id) => {
+    const key = String(id);
+    setSelectedIds((prev) => (prev.includes(key) ? prev.filter((x) => x !== key) : [...prev, key]));
+  };
+
+  const handleSubmit = async () => {
+    if (!selectedIds.length) return;
+    setSubmitting(true);
+    try {
+      const res = await api.post(`/groups/${groupId}/add-members`, { memberIds: selectedIds });
+      toast.success("Đã thêm thành viên.");
+      onAdded?.(res.data?.group);
+      onClose();
+    } catch (err) {
+      toast.error(err?.response?.data?.message || "Không thể thêm thành viên.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  if (!open) return null;
+
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-[#003B44]/50 p-4 backdrop-blur-sm">
+      <div className="flex max-h-[min(85vh,520px)] w-full max-w-md flex-col overflow-hidden rounded-2xl border border-[#00BFA5]/25 bg-light shadow-xl">
+        <div className="flex items-center justify-between border-b border-[#003B44]/10 px-4 py-3">
+          <div className="flex items-center gap-2 text-[#003B44]">
+            <UserPlus size={18} className="text-[#00BFA5]" />
+            <h2 className="font-semibold">Thêm người vào nhóm</h2>
+          </div>
+          <button type="button" onClick={onClose} className="rounded-lg p-1 text-[#003B44]/60 hover:bg-[#003B44]/10" aria-label="Đóng">
+            <X size={18} />
+          </button>
+        </div>
+        <div className="px-4 pt-3">
+          <div className="mb-2 flex items-center gap-2 rounded-xl border border-[#003B44]/15 bg-white px-3 py-2">
+            <Search size={16} className="shrink-0 text-[#00BFA5]" />
+            <input
+              type="search"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Tìm bạn bè..."
+              className="min-w-0 flex-1 bg-transparent text-sm text-[#003B44] outline-none"
+            />
+          </div>
+        </div>
+        <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-2">
+          {loading ? (
+            <div className="flex h-48 items-center justify-center">
+              <Loader2 className="animate-spin text-[#00BFA5]" size={22} />
+            </div>
+          ) : filtered.length === 0 ? (
+            <p className="py-10 text-center text-sm text-[#003B44]/50">Không còn bạn bè để thêm.</p>
+          ) : (
+            <ul className="space-y-1">
+              {filtered.map((friend) => {
+                const id = String(friend._id || friend.id);
+                const checked = selectedIds.includes(id);
+                return (
+                  <li key={id}>
+                    <label
+                      className={`flex cursor-pointer items-center gap-3 rounded-xl border px-2 py-2 transition ${
+                        checked ? "border-[#00BFA5]/40 bg-[#00BFA5]/10" : "border-transparent hover:bg-[#003B44]/5"
+                      }`}
+                    >
+                      <input type="checkbox" checked={checked} onChange={() => toggle(id)} className="accent-[#00BFA5]" />
+                      <UserAvatar user={friend} size="sm" alt="" />
+                      <span className="truncate text-sm text-[#003B44]">{memberDisplayLabel(friend)}</span>
+                    </label>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </div>
+        <div className="flex gap-2 border-t border-[#003B44]/10 px-4 py-3">
+          <button type="button" onClick={onClose} className="flex-1 rounded-xl border border-[#003B44]/15 py-2.5 text-sm text-[#003B44]">
+            Hủy
+          </button>
+          <button
+            type="button"
+            disabled={!selectedIds.length || submitting}
+            onClick={handleSubmit}
+            className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-[#003B44] py-2.5 text-sm font-medium text-[#00BFA5] disabled:opacity-50"
+          >
+            {submitting ? <Loader2 size={16} className="animate-spin" /> : null}
+            Thêm
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ChatWindow({ friend, group, groupId: routeGroupId, currentUserId, onGroupChange, onLeaveGroup }) {
+  const navigate = useNavigate();
   const { user } = useAuth();
   const { socket, connected, onlineUsers } = useSocket();
   const isGroupChat = Boolean(group);
+  const [infoSidebarOpen, setInfoSidebarOpen] = useState(false);
+  const [membersAccordionOpen, setMembersAccordionOpen] = useState(true);
+  const [showAddMembersModal, setShowAddMembersModal] = useState(false);
+  const [showRenameModal, setShowRenameModal] = useState(false);
+  const [showLeaveConfirmModal, setShowLeaveConfirmModal] = useState(false);
+  const [localGroup, setLocalGroup] = useState(group);
+  const [leavingGroup, setLeavingGroup] = useState(false);
+  const [updatingGroup, setUpdatingGroup] = useState(false);
+  const groupAvatarInputRef = useRef(null);
   const [messages, setMessages] = useState([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
   const [draft, setDraft] = useState("");
@@ -874,36 +1391,136 @@ function ChatWindow({ friend, group, currentUserId }) {
     attachmentsRef.current = attachments;
   }, [attachments]);
 
+  useEffect(() => {
+    setLocalGroup(group);
+  }, [group]);
+
+  const activeGroup = isGroupChat ? localGroup || group : null;
+
   const chatId = useMemo(() => {
-    if (isGroupChat) return group ? String(group._id || group.id || "") : null;
+    if (isGroupChat) {
+      if (routeGroupId) return String(routeGroupId);
+      return activeGroup ? String(activeGroup._id || activeGroup.id || "") : null;
+    }
     if (!friend) return null;
     return String(friend._id || friend.id || "");
-  }, [friend, group, isGroupChat]);
+  }, [friend, activeGroup, isGroupChat, routeGroupId]);
 
   const memberMap = useMemo(() => {
     const map = new Map();
-    (group?.members || []).forEach((member) => {
+    (activeGroup?.members || []).forEach((member) => {
       map.set(String(member._id || member.id), member);
     });
     return map;
-  }, [group]);
+  }, [activeGroup]);
+
+  const groupCreatorId = useMemo(() => getGroupCreatorId(activeGroup), [activeGroup]);
+
+  /** Chỉ cập nhật state local (khi tải tin nhắn) — không báo parent để tránh vòng lặp reload */
+  const syncLocalGroup = useCallback((updated) => {
+    if (!updated) return;
+    setLocalGroup(updated);
+  }, []);
+
+  /** Cập nhật sau thao tác user / socket — đồng bộ sidebar & danh sách hội thoại */
+  const publishGroupUpdate = useCallback(
+    (updated) => {
+      if (!updated) return;
+      setLocalGroup(updated);
+      onGroupChange?.(updated);
+      window.dispatchEvent(new CustomEvent("groups-updated"));
+    },
+    [onGroupChange]
+  );
 
   const chatTitle = useMemo(() => {
-    if (isGroupChat) return group?.name || "Nhóm chat";
+    if (isGroupChat) return activeGroup?.name || "Nhóm chat";
     const n = `${friend?.firstName || ""} ${friend?.lastName || ""}`.trim();
     return n || friend?.email || "Bạn bè";
-  }, [friend, group, isGroupChat]);
+  }, [friend, activeGroup, isGroupChat]);
 
   const chatSubtitle = useMemo(() => {
     if (isGroupChat) {
-      const count = group?.memberCount || group?.members?.length || 0;
+      const count = activeGroup?.memberCount || activeGroup?.members?.length || 0;
       return `${count} thành viên`;
     }
     const fid = chatId;
     const online = fid && (onlineUsers instanceof Set ? onlineUsers : new Set()).has(String(fid));
     if (!connected) return "Đang kết nối máy chủ…";
     return online ? "Đang hoạt động" : "Offline";
-  }, [isGroupChat, group, chatId, connected, onlineUsers]);
+  }, [isGroupChat, activeGroup, chatId, connected, onlineUsers]);
+
+  useEffect(() => {
+    setInfoSidebarOpen(false);
+    setMembersAccordionOpen(true);
+    setShowLeaveConfirmModal(false);
+    setShowRenameModal(false);
+  }, [chatId]);
+
+  useEffect(() => {
+    if (!socket || !isGroupChat || !chatId) return undefined;
+
+    const onGroupUpdated = ({ group: updated }) => {
+      if (!updated || String(updated._id) !== String(chatId)) return;
+      publishGroupUpdate(updated);
+    };
+
+    socket.on("group_updated", onGroupUpdated);
+    return () => socket.off("group_updated", onGroupUpdated);
+  }, [socket, isGroupChat, chatId, publishGroupUpdate]);
+
+  const handleConfirmRenameGroup = async (trimmed) => {
+    if (!chatId || updatingGroup || !trimmed) return;
+    setUpdatingGroup(true);
+    try {
+      const res = await api.put(`/groups/${chatId}`, { name: trimmed });
+      publishGroupUpdate(res.data?.group);
+      setShowRenameModal(false);
+      toast.success("Đã đổi tên nhóm.");
+    } catch (err) {
+      toast.error(err?.response?.data?.message || "Không thể đổi tên nhóm.");
+    } finally {
+      setUpdatingGroup(false);
+    }
+  };
+
+  const handleGroupAvatarPick = () => groupAvatarInputRef.current?.click();
+
+  const handleGroupAvatarChange = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file || !chatId) return;
+    const form = new FormData();
+    form.append("avatar", file);
+    setUpdatingGroup(true);
+    try {
+      const res = await api.put(`/groups/${chatId}`, form, {
+        headers: { "Content-Type": "multipart/form-data" }
+      });
+      publishGroupUpdate(res.data?.group);
+      toast.success("Đã cập nhật ảnh nhóm.");
+    } catch (err) {
+      toast.error(err?.response?.data?.message || "Không thể đổi ảnh nhóm.");
+    } finally {
+      setUpdatingGroup(false);
+    }
+  };
+
+  const handleConfirmLeaveGroup = async () => {
+    if (!chatId || leavingGroup) return;
+    setLeavingGroup(true);
+    try {
+      await api.post(`/groups/${chatId}/leave`);
+      setShowLeaveConfirmModal(false);
+      toast.success("Đã rời nhóm.");
+      onLeaveGroup?.();
+      navigate("/");
+    } catch (err) {
+      toast.error(err?.response?.data?.message || "Không thể rời nhóm.");
+    } finally {
+      setLeavingGroup(false);
+    }
+  };
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -931,7 +1548,7 @@ function ChatWindow({ friend, group, currentUserId }) {
   }, []);
 
   const handleReplyToMessage = useCallback((message) => {
-    if (!message || message.isRecalled || message.pending) return;
+    if (!message || message.isRecalled || message.pending || isSystemMessage(message)) return;
     setReplyTarget(buildReplySnapshot(message));
   }, []);
 
@@ -952,7 +1569,10 @@ function ChatWindow({ friend, group, currentUserId }) {
       try {
         const url = isGroupChat ? `/groups/${chatId}/messages` : `/chat/${chatId}`;
         const res = await api.get(url);
-        if (!cancelled) setMessages(res.data?.messages || []);
+        if (!cancelled) {
+          setMessages(res.data?.messages || []);
+          if (isGroupChat && res.data?.group) syncLocalGroup(res.data.group);
+        }
       } catch {
         if (!cancelled) setMessages([]);
       } finally {
@@ -964,7 +1584,7 @@ function ChatWindow({ friend, group, currentUserId }) {
     return () => {
       cancelled = true;
     };
-  }, [chatId, isGroupChat]);
+  }, [chatId, isGroupChat, syncLocalGroup]);
 
   useEffect(() => {
     if (!socket || !chatId) return undefined;
@@ -1274,6 +1894,7 @@ function ChatWindow({ friend, group, currentUserId }) {
     const me = String(currentUserId);
     for (let i = visibleMessages.length - 1; i >= 0; i -= 1) {
       const m = visibleMessages[i];
+      if (isSystemMessage(m)) continue;
       if (isMessageMine(m, me) && !m.isRecalled && !m.pending) return String(m._id);
     }
     return null;
@@ -1304,7 +1925,7 @@ function ChatWindow({ friend, group, currentUserId }) {
     []
   );
 
-  if (!chatId || (!isGroupChat && !friend) || (isGroupChat && !group)) {
+  if (!chatId || (!isGroupChat && !friend) || (isGroupChat && !activeGroup)) {
     return (
       <div className="relative flex flex-1 flex-col overflow-hidden rounded-2xl border border-primary/8 bg-gradient-to-br from-accent via-light to-accent/90 p-6 shadow-inner">
         <div className="pointer-events-none absolute inset-0 rounded-2xl bg-[radial-gradient(ellipse_at_top_right,rgba(0,191,165,0.12),transparent_50%)]" />
@@ -1321,28 +1942,37 @@ function ChatWindow({ friend, group, currentUserId }) {
   }
 
   return (
-    <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-primary/8 bg-gradient-to-br from-accent via-light to-accent/90 shadow-inner">
+    <div className="relative flex min-h-0 flex-1 overflow-hidden rounded-2xl border border-primary/8 bg-gradient-to-br from-accent via-light to-accent/90 shadow-inner">
       <div className="pointer-events-none absolute inset-0 rounded-2xl bg-[radial-gradient(ellipse_at_top_right,rgba(0,191,165,0.08),transparent_55%)]" />
 
-      <header className="relative z-10 flex shrink-0 items-center gap-3 border-b border-primary/10 bg-light/95 px-4 py-3 backdrop-blur-sm md:px-5">
-        {isGroupChat ? (
-          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#003B44]/10 text-[#00BFA5] ring-2 ring-[#00BFA5]/25">
-            {group?.avatar ? (
-              <img src={group.avatar} alt="" className="h-full w-full rounded-full object-cover" />
-            ) : (
-              <Users size={22} />
-            )}
+      {/* Khung chat chính — thu hẹp khi Sidebar thông tin (Messenger) mở bên phải */}
+      <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
+        <header className="relative z-10 flex shrink-0 items-center gap-3 border-b border-primary/10 bg-light/95 px-4 py-3 backdrop-blur-sm md:px-5">
+          {isGroupChat ? (
+            <GroupAvatar group={activeGroup} size="md" className="ring-2 ring-[#00BFA5]/25" />
+          ) : (
+            <UserAvatar user={friend} size="md" className="ring-2 ring-secondary/25" alt="" />
+          )}
+          <div className="min-w-0 flex-1">
+            <p className="truncate font-semibold text-[#003B44]">{chatTitle}</p>
+            <p className="truncate text-xs text-[#003B44]/50">{chatSubtitle}</p>
           </div>
-        ) : (
-          <UserAvatar user={friend} size="md" className="ring-2 ring-secondary/25" alt="" />
-        )}
-        <div className="min-w-0 flex-1">
-          <p className="truncate font-semibold text-[#003B44]">{chatTitle}</p>
-          <p className="truncate text-xs text-[#003B44]/50">{chatSubtitle}</p>
-        </div>
-      </header>
+          <button
+            type="button"
+            onClick={() => setInfoSidebarOpen((v) => !v)}
+            className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full transition-all ${
+              infoSidebarOpen
+                ? "bg-[#00BFA5] text-[#003B44] shadow-md"
+                : "bg-[#003B44]/8 text-[#003B44] hover:bg-[#003B44]/12"
+            }`}
+            aria-label={infoSidebarOpen ? "Ẩn thông tin cuộc trò chuyện" : "Xem thông tin cuộc trò chuyện"}
+            aria-pressed={infoSidebarOpen}
+          >
+            <Info size={20} strokeWidth={2} />
+          </button>
+        </header>
 
-      <div className="relative z-10 flex min-h-0 flex-1 flex-col overflow-hidden">
+        <div className="relative z-10 flex min-h-0 flex-1 flex-col overflow-hidden">
         <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 md:px-5">
           {loadingHistory ? (
             <div className="flex justify-center py-10 text-primary/45">
@@ -1352,9 +1982,45 @@ function ChatWindow({ friend, group, currentUserId }) {
             <p className="py-8 text-center text-sm text-primary/45">Chưa có tin nhắn nào</p>
           ) : (
             visibleMessages.map((m, index) => {
-              const isMine = isMessageMine(m, currentUserId);
               const previousMessage = index > 0 ? visibleMessages[index - 1] : null;
               const nextMessage = index < visibleMessages.length - 1 ? visibleMessages[index + 1] : null;
+
+              /*
+               * Tin nhắn hệ thống (messageType === 'system'): hiển thị giữa khung chat,
+               * không avatar / bong bóng / menu xóa-trả lời — do server tạo khi có sự kiện nhóm.
+               */
+              if (isSystemMessage(m)) {
+                const currentDate = new Date(m.createdAt);
+                const previousDate = previousMessage ? new Date(previousMessage.createdAt) : null;
+                const hasValidCurrentDate = !Number.isNaN(currentDate.getTime());
+                const hasValidPreviousDate = previousDate && !Number.isNaN(previousDate.getTime());
+                const isFirstMessage = index === 0;
+                const isNewDay =
+                  hasValidCurrentDate && hasValidPreviousDate
+                    ? !isSameDate(currentDate, previousDate)
+                    : false;
+                const isOverThirtyMinutes =
+                  hasValidCurrentDate && hasValidPreviousDate
+                    ? currentDate.getTime() - previousDate.getTime() > 30 * 60 * 1000
+                    : false;
+                const shouldShowTimestampSeparator = isFirstMessage || isNewDay || isOverThirtyMinutes;
+                const separatorText = formatVietnameseChatTime(m.createdAt);
+
+                return (
+                  <div key={String(m._id)} className="my-5 scroll-mt-4">
+                    {shouldShowTimestampSeparator && separatorText ? (
+                      <div className="mb-4 text-center text-[11px] text-primary/40">{separatorText}</div>
+                    ) : null}
+                    <div className="flex justify-center px-2">
+                      <p className="max-w-[min(100%,320px)] text-center text-xs leading-relaxed text-gray-400">
+                        {m.content}
+                      </p>
+                    </div>
+                  </div>
+                );
+              }
+
+              const isMine = isMessageMine(m, currentUserId);
 
               // So sánh prevMessage / nextMessage để biết tin đứng đầu hay cuối nhóm gom
               const { isFirstInGroup, isLastInGroup } = getMessageGroupPosition(
@@ -1515,17 +2181,190 @@ function ChatWindow({ friend, group, currentUserId }) {
             </button>
           </div>
         </div>
+        </div>
+
+        {lightboxUrl ? (
+          <button
+            type="button"
+            className="absolute inset-0 z-30 flex items-center justify-center bg-black/75 p-4"
+            onClick={() => setLightboxUrl("")}
+            aria-label="Đóng xem ảnh"
+          >
+            <img src={lightboxUrl} alt="Ảnh phóng to" className="max-h-full max-w-full rounded-xl object-contain shadow-xl" />
+          </button>
+        ) : null}
       </div>
 
-      {lightboxUrl ? (
-        <button
-          type="button"
-          className="absolute inset-0 z-30 flex items-center justify-center bg-black/75 p-4"
-          onClick={() => setLightboxUrl("")}
-          aria-label="Đóng xem ảnh"
-        >
-          <img src={lightboxUrl} alt="Ảnh phóng to" className="max-h-full max-w-full rounded-xl object-contain shadow-xl" />
-        </button>
+      {/*
+        Sidebar thông tin bên phải (Minimalism):
+        - Icon Info bật/tắt; rộng ~340px, transition-all.
+        - Nhóm: avatar tròn, đổi ảnh, Đổi tên qua RenameGroupModal (không dùng window.prompt).
+        - 1-1: avatar + họ tên căn trên (justify-start, pt-10); kích thước đồng bộ với nhóm.
+      */}
+      <aside
+        className={`relative z-20 flex shrink-0 flex-col overflow-hidden border-l border-[#003B44]/8 bg-light/98 backdrop-blur-md transition-all duration-300 ease-out ${
+          infoSidebarOpen ? "w-[min(100%,340px)] opacity-100" : "w-0 opacity-0 pointer-events-none border-l-0"
+        }`}
+        aria-hidden={!infoSidebarOpen}
+      >
+        <div className="flex h-full w-[min(100vw,340px)] flex-col overflow-y-auto rounded-l-2xl">
+          {isGroupChat ? (
+            <>
+              <input
+                ref={groupAvatarInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={handleGroupAvatarChange}
+              />
+              <div className="flex flex-col items-center border-b border-[#003B44]/8 px-6 pb-8 pt-10 text-center">
+                <div className="mb-4">
+                  <GroupAvatar group={activeGroup} size="lg" className="ring-3 ring-[#00BFA5]/15" />
+                </div>
+                <h3 className="max-w-full truncate text-lg font-bold tracking-tight text-[#003B44]">
+                  {chatTitle}
+                </h3>
+                <p className="mt-1.5 text-xs text-[#003B44]/45">{chatSubtitle}</p>
+                <div className="mt-6 flex flex-wrap justify-center gap-3">
+                  <button
+                    type="button"
+                    onClick={handleGroupAvatarPick}
+                    disabled={updatingGroup}
+                    className="inline-flex items-center gap-2 rounded-full border border-[#003B44]/10 bg-white px-4 py-2.5 text-xs font-medium text-[#003B44] shadow-sm transition hover:bg-[#003B44]/5 disabled:opacity-50"
+                  >
+                    {updatingGroup ? <Loader2 size={14} className="animate-spin" /> : <Camera size={14} className="text-[#00BFA5]" />}
+                    Thay đổi ảnh
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowRenameModal(true)}
+                    disabled={updatingGroup}
+                    className="inline-flex items-center gap-2 rounded-full border border-[#003B44]/10 bg-white px-4 py-2.5 text-xs font-medium text-[#003B44] shadow-sm transition hover:bg-[#003B44]/5 disabled:opacity-50"
+                  >
+                    <Edit2 size={14} className="text-[#00BFA5]" />
+                    Đổi tên
+                  </button>
+                </div>
+              </div>
+
+              <ChatMediaGallerySection
+                chatId={chatId}
+                isGroupChat
+                messages={visibleMessages}
+                onOpenImage={setLightboxUrl}
+              />
+
+              <div className="border-b border-[#003B44]/8 py-2">
+                <button
+                  type="button"
+                  onClick={() => setMembersAccordionOpen((v) => !v)}
+                  className="flex w-full items-center justify-between px-6 py-4 text-left text-sm font-semibold text-[#003B44]"
+                >
+                  <span>Thành viên</span>
+                  <ChevronDown
+                    size={18}
+                    className={`text-[#00BFA5] transition-transform duration-200 ${membersAccordionOpen ? "rotate-180" : ""}`}
+                  />
+                </button>
+                {membersAccordionOpen ? (
+                  <div className="space-y-3 px-4 pb-6">
+                    <button
+                      type="button"
+                      onClick={() => setShowAddMembersModal(true)}
+                      className="flex w-full items-center justify-center gap-2 rounded-full border border-dashed border-[#00BFA5]/40 bg-[#00BFA5]/[0.04] py-3 text-sm font-medium text-[#003B44] transition hover:bg-[#00BFA5]/10"
+                    >
+                      <UserPlus size={16} className="text-[#00BFA5]" />
+                      Thêm người
+                    </button>
+                    <ul className="max-h-72 space-y-1 overflow-y-auto pr-1">
+                      {(activeGroup?.members || []).map((member) => {
+                        const mid = String(member._id || member.id);
+                        const isCreator = mid === groupCreatorId;
+                        const isOnline = onlineUserSet.has(mid);
+                        return (
+                          <li
+                            key={mid}
+                            className="flex items-center gap-4 rounded-2xl px-3 py-3 transition hover:bg-[#003B44]/[0.04]"
+                          >
+                            <div className="relative shrink-0">
+                              <UserAvatar user={member} size="sm" alt="" />
+                              {isOnline ? (
+                                <span className="absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full border-2 border-light bg-[#00BFA5]" />
+                              ) : null}
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <p className="truncate text-sm font-medium leading-snug text-[#003B44]">
+                                {memberFullName(member)}
+                              </p>
+                              {isCreator ? (
+                                <p className="mt-1 text-[10px] font-medium uppercase tracking-wide text-[#00BFA5]/90">
+                                  Người tạo nhóm
+                                </p>
+                              ) : null}
+                            </div>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </div>
+                ) : null}
+              </div>
+
+              <div className="mt-auto px-6 py-8">
+                <button
+                  type="button"
+                  onClick={() => setShowLeaveConfirmModal(true)}
+                  disabled={leavingGroup}
+                  className="flex w-full items-center justify-center gap-2 rounded-2xl py-3.5 text-sm font-medium text-gray-500 transition hover:bg-[#003B44]/5 hover:text-[#003B44] disabled:opacity-50"
+                >
+                  {leavingGroup ? <Loader2 size={16} className="animate-spin" /> : <LogOut size={16} />}
+                  Rời khỏi nhóm
+                </button>
+              </div>
+            </>
+          ) : (
+            /* Chat 1-1: avatar + tên căn trên; kích thước đồng bộ với khối tiêu đề nhóm */
+            <>
+              <div className="flex flex-col items-center justify-start border-b border-[#003B44]/8 px-6 pb-6 pt-10 text-center">
+                <UserAvatar user={friend} size="lg" className="!h-20 !w-20 rounded-full ring-3 ring-[#00BFA5]/15" alt="" />
+                <h3 className="mt-4 max-w-full truncate text-lg font-bold tracking-tight text-[#003B44]">
+                  {personFullName(friend)}
+                </h3>
+              </div>
+              <ChatMediaGallerySection
+                chatId={chatId}
+                isGroupChat={false}
+                messages={visibleMessages}
+                onOpenImage={setLightboxUrl}
+              />
+            </>
+          )}
+        </div>
+      </aside>
+
+      {isGroupChat ? (
+        <>
+          <RenameGroupModal
+            open={showRenameModal}
+            initialName={activeGroup?.name || ""}
+            onClose={() => setShowRenameModal(false)}
+            onConfirm={handleConfirmRenameGroup}
+            submitting={updatingGroup}
+          />
+          <AddGroupMembersModal
+            open={showAddMembersModal}
+            onClose={() => setShowAddMembersModal(false)}
+            groupId={chatId}
+            existingMemberIds={(activeGroup?.members || []).map((m) => String(m._id || m.id))}
+            onAdded={publishGroupUpdate}
+          />
+          <LeaveGroupConfirmModal
+            open={showLeaveConfirmModal}
+            onClose={() => setShowLeaveConfirmModal(false)}
+            onConfirm={handleConfirmLeaveGroup}
+            submitting={leavingGroup}
+          />
+        </>
       ) : null}
     </div>
   );

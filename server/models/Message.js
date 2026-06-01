@@ -36,6 +36,13 @@ const messageSchema = new mongoose.Schema(
       trim: true,
       default: ""
     },
+    /** Loại tin: text | image | file | system (sự kiện nhóm, không có bong bóng chat) */
+    messageType: {
+      type: String,
+      enum: ["text", "image", "file", "system"],
+      default: "text",
+      required: false
+    },
     /** true khi người nhận đã mở/đọc tin 1-1 (trạng thái "Đã xem" DM) */
     isRead: {
       type: Boolean,
@@ -83,6 +90,9 @@ messageSchema.path("receiver").validate(function validateReceiver(receiver) {
 
 messageSchema.path("content").validate(function validateContentOrFile(content) {
   if (this.isRecalled) return true;
+  if (this.messageType === "system") {
+    return typeof content === "string" && content.trim().length > 0;
+  }
   const hasText = typeof content === "string" && content.trim().length > 0;
   const hasFile = typeof this.fileUrl === "string" && this.fileUrl.trim().length > 0;
   return hasText || hasFile;

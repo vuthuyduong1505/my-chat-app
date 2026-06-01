@@ -41,6 +41,12 @@ function buildLastMessagePreview(msg, me, friendsById, groupMembersBySender) {
     } else label = "Thành viên";
   }
 
+  if (msg.messageType === "system") {
+    const text = (msg.content || "").trim();
+    const snippet = text.length > 48 ? `${text.slice(0, 48)}…` : text || "Hoạt động nhóm";
+    return { preview: snippet, senderId: sid, createdAt: msg.createdAt };
+  }
+
   if (msg.isRecalled) {
     return { preview: `${label}: Tin nhắn đã bị thu hồi`, senderId: sid, createdAt: msg.createdAt };
   }
@@ -70,6 +76,7 @@ router.get("/", authMiddleware, async (req, res) => {
     const friendOids = friends.map((f) => f._id);
 
     const groups = await Group.find({ members: me })
+      .populate({ path: "creator", select: memberFields, strictPopulate: false })
       .populate("members", memberFields)
       .sort({ updatedAt: -1 })
       .lean();
@@ -133,8 +140,11 @@ router.get("/", authMiddleware, async (req, res) => {
 
     const conversations = [];
 
+    const addedDmIds = new Set();
+
     for (const friend of friends) {
       const id = String(friend._id);
+      addedDmIds.add(id);
       const last = dmLastMap.get(id);
       const lastMeta = buildLastMessagePreview(last, me, friendsById);
       conversations.push({
@@ -146,6 +156,28 @@ router.get("/", authMiddleware, async (req, res) => {
         lastMessage: lastMeta,
         lastActivityAt: last?.createdAt || null
       });
+    }
+
+    /** Khôi phục đoạn chat DM còn tin nhắn dù peer không còn trong friends (tránh “mất” lịch sử) */
+    const orphanPeerIds = [...dmLastMap.keys()].filter((id) => !addedDmIds.has(id));
+    if (orphanPeerIds.length) {
+      const orphanPeers = await User.find({ _id: { $in: orphanPeerIds } })
+        .select(memberFields)
+        .lean();
+      for (const peer of orphanPeers) {
+        const id = String(peer._id);
+        const last = dmLastMap.get(id);
+        friendsById.set(id, peer);
+        conversations.push({
+          type: "dm",
+          id,
+          title: `${peer.firstName || ""} ${peer.lastName || ""}`.trim() || peer.email || "Người dùng",
+          peer,
+          group: null,
+          lastMessage: buildLastMessagePreview(last, me, friendsById),
+          lastActivityAt: last?.createdAt || null
+        });
+      }
     }
 
     for (const g of groups) {
@@ -162,6 +194,8 @@ router.get("/", authMiddleware, async (req, res) => {
           _id: g._id,
           name: g.name,
           avatar: g.avatar || "",
+          creator: g.creator || g.admin,
+          creatorId: String((g.creator || g.admin)?._id || g.creator || g.admin || ""),
           members: g.members || [],
           memberCount: (g.members || []).length
         },
@@ -178,7 +212,8 @@ router.get("/", authMiddleware, async (req, res) => {
     });
 
     return res.status(200).json({ conversations });
-  } catch {
+  } catch (error) {
+    console.error("GET /conversations error:", error);
     return res.status(500).json({ message: "Lỗi máy chủ khi tải danh sách đoạn chat." });
   }
 });

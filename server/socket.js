@@ -20,6 +20,23 @@ async function emitMessagePayload(doc, extra = {}) {
   return { ...normalizeMessagePayload(populated || doc), ...extra };
 }
 
+/** Phát new_message tới phòng nhóm + phòng từng thành viên (tin thường & tin hệ thống). */
+async function broadcastGroupMessage(doc, extra = {}) {
+  const io = ioInstance;
+  if (!io || !doc?.groupId) return null;
+
+  const payload = await emitMessagePayload(doc, extra);
+  const gid = String(doc.groupId);
+
+  io.to(groupRoomId(gid)).emit("new_message", payload);
+  const group = await Group.findById(gid).select("members").lean();
+  (group?.members || []).forEach((memberId) => {
+    io.to(userRoomId(memberId)).emit("new_message", payload);
+  });
+
+  return payload;
+}
+
 async function resolveValidReplyToId(replyToId, { userId, groupId, receiverId }) {
   if (!replyToId || !mongoose.Types.ObjectId.isValid(replyToId)) return null;
 
@@ -77,6 +94,43 @@ let ioInstance = null;
  * 4. Client nhận added_to_group → emit join_group_chat (lớp bảo đảm thêm).
  * Kết quả: nhận new_message nhóm realtime không cần F5 / reconnect.
  */
+/**
+ * Phát group_updated tới mọi thành viên (phòng user + phòng nhóm)
+ * để Sidebar thông tin và danh sách đoạn chat cập nhật realtime.
+ */
+async function notifyGroupUpdated(group) {
+  const io = ioInstance;
+  if (!io || !group) return;
+
+  const groupId = String(group._id || group.id);
+  const membersRaw = group.members || [];
+  const memberIds = membersRaw.map((m) =>
+    m && typeof m === "object" && (m._id || m.id) ? String(m._id || m.id) : String(m)
+  );
+
+  const creatorRaw = group.creator || group.admin;
+  const creatorId = creatorRaw
+    ? String(creatorRaw._id || creatorRaw.id || creatorRaw)
+    : "";
+
+  const payload = {
+    group: {
+      _id: groupId,
+      name: group.name,
+      avatar: group.avatar || "",
+      creator: creatorRaw,
+      creatorId,
+      members: membersRaw,
+      memberCount: memberIds.length
+    }
+  };
+
+  memberIds.forEach((memberId) => {
+    io.to(userRoomId(memberId)).emit("group_updated", payload);
+  });
+  io.to(groupRoomId(groupId)).emit("group_updated", payload);
+}
+
 async function notifyMembersAddedToGroup(group, addedByUser) {
   const io = ioInstance;
   if (!io || !group) return;
@@ -257,6 +311,9 @@ function attachSocketIO(httpServer) {
           const isMember = (group.members || []).some((id) => String(id) === String(userId));
           if (!isMember) return;
 
+          const messageType =
+            attachmentType === "image" ? "image" : attachmentUrl ? "file" : "text";
+
           const doc = await Message.create({
             sender: userId,
             groupId,
@@ -264,17 +321,11 @@ function attachSocketIO(httpServer) {
             fileUrl: attachmentUrl,
             fileType: attachmentType,
             fileName: attachmentName,
+            messageType,
             ...(validReplyTo ? { replyTo: validReplyTo } : {})
           });
 
-          const payload = await emitMessagePayload(doc, tempId ? { tempId } : {});
-
-          io.to(groupRoomId(groupId)).emit("new_message", payload);
-          // Phát thêm vào phòng user:{memberId} để mọi thành viên online cập nhật Sidebar/badge
-          // (kể cả khi chưa join kịp phòng group). Client lọc trùng theo _id/tempId.
-          (group.members || []).forEach((memberId) => {
-            io.to(userRoomId(memberId)).emit("new_message", payload);
-          });
+          await broadcastGroupMessage(doc, tempId ? { tempId } : {});
           return;
         }
 
@@ -456,4 +507,9 @@ function attachSocketIO(httpServer) {
   return io;
 }
 
-module.exports = { attachSocketIO, notifyMembersAddedToGroup };
+module.exports = {
+  attachSocketIO,
+  notifyMembersAddedToGroup,
+  notifyGroupUpdated,
+  broadcastGroupMessage
+};
