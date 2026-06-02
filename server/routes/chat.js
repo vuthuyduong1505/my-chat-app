@@ -2,6 +2,7 @@ const express = require("express");
 const mongoose = require("mongoose");
 const Message = require("../models/Message");
 const User = require("../models/User");
+const Conversation = require("../models/Conversation");
 const authMiddleware = require("../middleware/authMiddleware");
 const cloudinary = require("../config/cloudinary");
 const { uploadChatFile, decodeMulterFileName } = require("../middleware/uploadMiddleware");
@@ -79,13 +80,22 @@ router.get("/:friendId", authMiddleware, async (req, res) => {
       .sort({ createdAt: 1 })
       .populate("sender", SENDER_PROFILE_FIELDS)
       .populate(REPLY_TO_POPULATE)
+      .populate("reactions.user", SENDER_PROFILE_FIELDS)
       .lean();
 
     const normalized = messages
       .filter((m) => !(m.hiddenFor || []).some((id) => String(id) === String(me)))
       .map((m) => normalizeMessagePayload(m));
 
-    return res.status(200).json({ messages: normalized });
+    // Lấy nicknames của cuộc trò chuyện 1-1
+    const participants = [me, friendId].sort();
+    const conv = await Conversation.findOne({ participants: { $all: participants, $size: 2 } }).lean();
+    const nicknames = conv ? conv.nicknames : [];
+
+    return res.status(200).json({ 
+      messages: normalized,
+      nicknames
+    });
   } catch (error) {
     return res.status(500).json({ message: "Lỗi máy chủ khi tải lịch sử tin nhắn." });
   }

@@ -3,8 +3,11 @@ const mongoose = require("mongoose");
 const Message = require("../models/Message");
 const User = require("../models/User");
 const Group = require("../models/Group");
+const Conversation = require("../models/Conversation");
 const authMiddleware = require("../middleware/authMiddleware");
 const { getCallingName } = require("../utils/callingName");
+const { createGroupSystemMessage, createDmSystemMessage, resolveUser, formatUserName } = require("../utils/systemGroupMessage");
+const { emitToUser, emitToGroup } = require("../socket");
 
 const router = express.Router();
 const memberFields = "firstName lastName email avatar";
@@ -62,6 +65,148 @@ function buildLastMessagePreview(msg, me, friendsById, groupMembersBySender) {
   const snippet = text.length > 48 ? `${text.slice(0, 48)}…` : text || "Tin nhắn mới";
   return { preview: `${label}: ${snippet}`, senderId: sid, createdAt: msg.createdAt };
 }
+
+async function updateNicknameHelper({ me, id, targetUserId, nickname }) {
+  if (!mongoose.Types.ObjectId.isValid(targetUserId)) {
+    throw { status: 400, message: "ID người dùng không hợp lệ." };
+  }
+
+  const actor = await resolveUser(me);
+  const targetUser = await resolveUser(targetUserId);
+
+  if (!targetUser) {
+    throw { status: 404, message: "Không tìm thấy người được đổi biệt danh." };
+  }
+
+  const trimmedNickname = (nickname || "").trim();
+  let resultNicknames = [];
+
+  // 1. Kiểm tra xem id có phải là groupId không
+  let group = null;
+  if (mongoose.Types.ObjectId.isValid(id)) {
+    group = await Group.findById(id);
+  }
+
+  if (group) {
+    const isMember = (group.members || []).some(m => String(m) === String(me));
+    if (!isMember) {
+      throw { status: 403, message: "Bạn không thuộc nhóm này." };
+    }
+
+    if (!group.nicknames) group.nicknames = [];
+    const idx = group.nicknames.findIndex(n => String(n.user) === String(targetUserId));
+
+    if (trimmedNickname) {
+      if (idx >= 0) group.nicknames[idx].nickname = trimmedNickname;
+      else group.nicknames.push({ user: targetUserId, nickname: trimmedNickname });
+    } else {
+      if (idx >= 0) group.nicknames.splice(idx, 1);
+    }
+
+    await group.save();
+    resultNicknames = group.nicknames;
+
+    // System message & emit
+    const actionText = trimmedNickname 
+      ? `${formatUserName(actor)} đã đặt biệt danh cho ${formatUserName(targetUser)} là ${trimmedNickname}`
+      : `${formatUserName(actor)} đã xóa biệt danh của ${formatUserName(targetUser)}`;
+      
+    await createGroupSystemMessage({ groupId: id, actorId: me, content: actionText });
+    emitToGroup(id, "nickname_updated", { groupId: id, nicknames: resultNicknames });
+  } else {
+    // 2. Logic DM
+    let peerId = id;
+    let conv = null;
+
+    if (mongoose.Types.ObjectId.isValid(id)) {
+      conv = await Conversation.findById(id);
+      if (conv) {
+        peerId = String(conv.participants.find(p => String(p) !== String(me)) || targetUserId);
+      }
+    }
+
+    if (!conv) {
+      const participants = [me, peerId].sort();
+      conv = await Conversation.findOne({ participants: { $all: participants, $size: 2 } });
+      if (!conv) {
+        if (mongoose.Types.ObjectId.isValid(peerId)) {
+          conv = new Conversation({ participants, nicknames: [] });
+        } else {
+          throw { status: 400, message: "ID cuộc trò chuyện hoặc ID đối tác không hợp lệ." };
+        }
+      }
+    }
+
+    if (!conv.nicknames) conv.nicknames = [];
+    const idx = conv.nicknames.findIndex(n => String(n.user) === String(targetUserId));
+
+    if (trimmedNickname) {
+      if (idx >= 0) conv.nicknames[idx].nickname = trimmedNickname;
+      else conv.nicknames.push({ user: targetUserId, nickname: trimmedNickname });
+    } else {
+      if (idx >= 0) conv.nicknames.splice(idx, 1);
+    }
+
+    await conv.save();
+    resultNicknames = conv.nicknames;
+
+    // System message & emit
+    const actionText = trimmedNickname 
+      ? `${formatUserName(actor)} đã đặt biệt danh cho ${formatUserName(targetUser)} là ${trimmedNickname}`
+      : `${formatUserName(actor)} đã xóa biệt danh của ${formatUserName(targetUser)}`;
+      
+    await createDmSystemMessage({ senderId: me, receiverId: peerId, content: actionText });
+    
+    const payloadMe = { peerId, nicknames: resultNicknames };
+    const payloadPeer = { peerId: me, nicknames: resultNicknames };
+    emitToUser(me, "nickname_updated", payloadMe);
+    emitToUser(peerId, "nickname_updated", payloadPeer);
+  }
+
+  return resultNicknames;
+}
+
+router.put("/:id/nickname", authMiddleware, async (req, res) => {
+  try {
+    const me = req.user.id;
+    const { id } = req.params;
+    const { targetUserId, nickname, newNickname } = req.body;
+    
+    const targetNickname = nickname !== undefined ? nickname : newNickname;
+    const resultNicknames = await updateNicknameHelper({ me, id, targetUserId, nickname: targetNickname });
+
+    return res.status(200).json({ 
+      message: "Cập nhật biệt danh thành công.", 
+      nicknames: resultNicknames 
+    });
+  } catch (error) {
+    console.error("PUT /conversations/:id/nickname error:", error);
+    const status = error.status || 500;
+    const message = error.message || "Lỗi máy chủ khi cập nhật biệt danh.";
+    return res.status(status).json({ message });
+  }
+});
+
+router.post("/nickname", authMiddleware, async (req, res) => {
+  try {
+    const me = req.user.id;
+    const { targetUserId, newNickname, nickname, groupId } = req.body;
+    const id = groupId || targetUserId;
+
+    const targetNickname = nickname !== undefined ? nickname : newNickname;
+    const resultNicknames = await updateNicknameHelper({ me, id, targetUserId, nickname: targetNickname });
+
+    return res.status(200).json({ 
+      message: "Cập nhật biệt danh thành công.", 
+      nicknames: resultNicknames 
+    });
+  } catch (error) {
+    console.error("POST /conversations/nickname error:", error);
+    const status = error.status || 500;
+    const message = error.message || "Lỗi máy chủ khi cập nhật biệt danh.";
+    return res.status(status).json({ message });
+  }
+});
 
 router.get("/", authMiddleware, async (req, res) => {
   try {
@@ -138,6 +283,13 @@ router.get("/", authMiddleware, async (req, res) => {
     const dmLastMap = new Map(dmAgg.map((row) => [String(row._id), row.lastMessage]));
     const groupLastMap = new Map(groupAgg.map((row) => [String(row._id), row.lastMessage]));
 
+    const convs = await Conversation.find({ participants: meOid }).lean();
+    const dmNicknamesMap = new Map();
+    for (const c of convs) {
+      const peerId = String(c.participants.find(p => String(p) !== String(meOid)));
+      dmNicknamesMap.set(peerId, c.nicknames || []);
+    }
+
     const conversations = [];
 
     const addedDmIds = new Set();
@@ -153,6 +305,7 @@ router.get("/", authMiddleware, async (req, res) => {
         title: `${friend.firstName || ""} ${friend.lastName || ""}`.trim() || friend.email || "Người dùng",
         peer: friend,
         group: null,
+        nicknames: dmNicknamesMap.get(id) || [],
         lastMessage: lastMeta,
         lastActivityAt: last?.createdAt || null
       });
@@ -174,6 +327,7 @@ router.get("/", authMiddleware, async (req, res) => {
           title: `${peer.firstName || ""} ${peer.lastName || ""}`.trim() || peer.email || "Người dùng",
           peer,
           group: null,
+          nicknames: dmNicknamesMap.get(id) || [],
           lastMessage: buildLastMessagePreview(last, me, friendsById),
           lastActivityAt: last?.createdAt || null
         });
@@ -197,8 +351,10 @@ router.get("/", authMiddleware, async (req, res) => {
           creator: g.creator || g.admin,
           creatorId: String((g.creator || g.admin)?._id || g.creator || g.admin || ""),
           members: g.members || [],
-          memberCount: (g.members || []).length
+          memberCount: (g.members || []).length,
+          nicknames: g.nicknames || []
         },
+        nicknames: g.nicknames || [],
         lastMessage: lastMeta,
         lastActivityAt: last?.createdAt || g.updatedAt || g.createdAt || null
       });

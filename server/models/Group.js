@@ -28,6 +28,16 @@ const groupSchema = new mongoose.Schema(
         type: mongoose.Schema.Types.ObjectId,
         ref: "User"
       }
+    ],
+    /** 
+     * Biệt danh trong nhóm chat
+     * Mỗi phần tử lưu biệt danh của một người dùng trong nhóm này.
+     */
+    nicknames: [
+      {
+        user: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+        nickname: String
+      }
     ]
   },
   { timestamps: true }

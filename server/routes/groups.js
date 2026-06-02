@@ -33,6 +33,7 @@ function normalizeGroupDoc(g) {
     creatorId,
     members: g.members || [],
     memberCount: (g.members || []).length,
+    nicknames: g.nicknames || [],
     createdAt: g.createdAt,
     updatedAt: g.updatedAt
   };
@@ -343,6 +344,7 @@ router.get("/:groupId/messages", authMiddleware, async (req, res) => {
       .populate("sender", memberFields)
       .populate("seenBy", memberFields)
       .populate(REPLY_TO_POPULATE)
+      .populate("reactions.user", memberFields)
       .lean();
 
     const normalized = messages

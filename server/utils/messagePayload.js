@@ -101,6 +101,8 @@ function normalizeMessagePayload(doc) {
     hiddenFor: (doc.hiddenFor || []).map(String),
     replyTo,
     replyToId: replyTo?._id || (doc.replyTo ? String(doc.replyTo) : ""),
+    /** Truyền mảng reactions nguyên bản — client tự gom nhóm và đếm */
+    reactions: doc.reactions || [],
     createdAt: doc.createdAt,
     updatedAt: doc.updatedAt,
     ...(senderName ? { senderName } : {})

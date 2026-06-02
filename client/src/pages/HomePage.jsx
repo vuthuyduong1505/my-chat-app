@@ -7,14 +7,9 @@ import ChatWindow from "../components/ChatWindow";
 import CreateGroupModal from "../components/CreateGroupModal";
 import GroupAvatar from "../components/GroupAvatar";
 import UserAvatar from "../components/UserAvatar";
-import { getCallingName, getCallingNameFromFullName } from "../utils/displayName";
+import { getCallingName, getCallingNameFromFullName, getDisplayName } from "../utils/displayName";
 import { useAuth } from "../context/AuthContext";
 import { useSocket } from "../context/SocketContext";
-
-function friendDisplayName(friend) {
-  const name = `${friend?.firstName || ""} ${friend?.lastName || ""}`.trim();
-  return name || friend?.email || "Người dùng";
-}
 
 function getSenderId(msg) {
   if (msg?.senderId) return String(msg.senderId);
@@ -25,21 +20,22 @@ function getSenderId(msg) {
 }
 
 /** Tạo dòng xem trước tin cuối (đồng bộ với server conversations API) */
-function buildPreviewFromMessage(msg, meId, { user, peer, group } = {}) {
+function buildPreviewFromMessage(msg, meId, { user, peer, group, nicknames } = {}) {
   const sid = getSenderId(msg);
   const isMe = sid === String(meId);
   let label = "Bạn";
 
   if (!isMe) {
     if (typeof msg.sender === "object" && (msg.sender?.firstName || msg.sender?.lastName)) {
-      label = getCallingName(msg.sender) || "Thành viên";
+      label = getDisplayName(sid, nicknames, msg.sender) || "Thành viên";
     } else if (msg.senderName) {
+      // Dùng tên trả về sẵn nếu có (ít khi xảy ra, trừ tin cũ)
       label = getCallingNameFromFullName(msg.senderName) || msg.senderName;
     } else if (peer?.firstName || peer?.lastName) {
-      label = getCallingName(peer) || "Thành viên";
+      label = getDisplayName(sid, nicknames, peer) || "Thành viên";
     } else if (group?.members) {
       const member = group.members.find((m) => String(m._id || m.id) === sid);
-      label = member ? getCallingName(member) || "Thành viên" : "Thành viên";
+      label = member ? getDisplayName(sid, nicknames, member) : "Thành viên";
     } else {
       label = "Thành viên";
     }
@@ -191,6 +187,8 @@ function HomePage() {
 
   const activeChatKey = isGroupRoute && groupId ? `group:${groupId}` : userId ? `dm:${userId}` : null;
 
+  const [selectedNicknames, setSelectedNicknames] = useState([]);
+
   useEffect(() => {
     if (!activeChatKey || loadingList) return;
 
@@ -201,9 +199,11 @@ function HomePage() {
     if (conv?.type === "dm") {
       setSelectedFriend(conv.peer);
       setSelectedGroup(null);
+      setSelectedNicknames(conv.nicknames || []);
     } else if (conv?.type === "group") {
       setSelectedGroup(conv.group);
       setSelectedFriend(null);
+      setSelectedNicknames(conv.nicknames || conv.group?.nicknames || []);
     }
   }, [activeChatKey, conversations, loadingList]);
 
@@ -256,7 +256,8 @@ function HomePage() {
         const existing = prev[idx];
         const peer = existing.peer;
         const group = existing.group;
-        const preview = buildPreviewFromMessage(msg, me, { user, peer, group });
+        const nicknames = existing.nicknames;
+        const preview = buildPreviewFromMessage(msg, me, { user, peer, group, nicknames });
 
         const updated = {
           ...existing,
@@ -283,6 +284,62 @@ function HomePage() {
     window.addEventListener("conversation-activity", onActivity);
     return () => window.removeEventListener("conversation-activity", onActivity);
   }, [bumpConversationFromMessage]);
+
+  useEffect(() => {
+    if (!socket) return undefined;
+
+    const handleNicknameUpdate = (data) => {
+      const { groupId, peerId, nicknames } = data;
+      setConversations((prev) =>
+        prev.map((c) => {
+          if (groupId && c.type === "group" && String(c.id) === String(groupId)) {
+            return {
+              ...c,
+              nicknames,
+              group: c.group ? { ...c.group, nicknames } : c.group
+            };
+          }
+          if (peerId && c.type === "dm" && String(c.id) === String(peerId)) {
+            return {
+              ...c,
+              nicknames
+            };
+          }
+          return c;
+        })
+      );
+    };
+
+    socket.on("nickname_updated", handleNicknameUpdate);
+    return () => socket.off("nickname_updated", handleNicknameUpdate);
+  }, [socket]);
+
+  useEffect(() => {
+    const onLocalNicknameUpdated = (e) => {
+      const { chatId, isGroup, nicknames } = e.detail;
+      setConversations((prev) =>
+        prev.map((c) => {
+          if (isGroup && c.type === "group" && String(c.id) === String(chatId)) {
+            return {
+              ...c,
+              nicknames,
+              group: c.group ? { ...c.group, nicknames } : c.group
+            };
+          }
+          if (!isGroup && c.type === "dm" && String(c.id) === String(chatId)) {
+            return {
+              ...c,
+              nicknames
+            };
+          }
+          return c;
+        })
+      );
+    };
+
+    window.addEventListener("nickname-locally-updated", onLocalNicknameUpdated);
+    return () => window.removeEventListener("nickname-locally-updated", onLocalNicknameUpdated);
+  }, []);
 
   const handleSelectConversation = (conv) => {
     if (conv.type === "dm") {
@@ -420,7 +477,7 @@ function HomePage() {
 
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-semibold text-[#003B44]">
-                      {conv.type === "dm" ? friendDisplayName(conv.peer) : conv.title}
+                      {conv.type === "dm" ? getDisplayName(conv.id, conv.nicknames, conv.peer) : conv.title}
                     </p>
                     <p className="mt-0.5 truncate text-xs text-[#003B44]/50">{preview}</p>
                   </div>
@@ -440,6 +497,7 @@ function HomePage() {
             group={isGroupRoute ? selectedGroup : null}
             groupId={isGroupRoute ? groupId : undefined}
             currentUserId={currentUserId}
+            nicknames={selectedNicknames}
             onGroupChange={handleGroupChange}
             onLeaveGroup={handleLeaveGroup}
           />

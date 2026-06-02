@@ -76,7 +76,19 @@ const messageSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: "Message",
       default: null
-    }
+    },
+    /**
+     * Mảng cảm xúc (reactions) — mỗi phần tử là { user, emoji }:
+     * - user: ObjectId người thả cảm xúc (ref User).
+     * - emoji: chuỗi emoji đã thả (ví dụ: "❤️", "👍", "😂"...).
+     * Mỗi user chỉ được thả tối đa 1 emoji cho 1 tin nhắn (toggle logic xử lý ở socket).
+     */
+    reactions: [
+      {
+        user: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+        emoji: String
+      }
+    ]
   },
   {
     timestamps: true //Thời gian tạo và cập nhật

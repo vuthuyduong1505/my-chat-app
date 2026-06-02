@@ -10,12 +10,13 @@ const {
   REPLY_TO_POPULATE
 } = require("./utils/messagePayload");
 
-/** Tải sender + replyTo (self-ref) đã populate để socket/API đồng bộ */
+/** Tải sender + replyTo (self-ref) + reactions.user đã populate để socket/API đồng bộ */
 async function emitMessagePayload(doc, extra = {}) {
   const populated = await Message.findById(doc._id)
     .populate("sender", SENDER_PROFILE_FIELDS)
     .populate("seenBy", SENDER_PROFILE_FIELDS)
     .populate(REPLY_TO_POPULATE)
+    .populate("reactions.user", SENDER_PROFILE_FIELDS)
     .lean();
   return { ...normalizeMessagePayload(populated || doc), ...extra };
 }
@@ -496,6 +497,99 @@ function attachSocketIO(httpServer) {
       }
     });
 
+    /**
+     * Thả cảm xúc vào tin nhắn (Message Reactions) — Toggle logic:
+     *
+     * 1. Client gửi sự kiện send_reaction kèm { messageId, emoji }.
+     * 2. Server tìm tin nhắn trong DB, kiểm tra người dùng có quyền (thuộc cuộc trò chuyện).
+     * 3. Logic Toggle (Bật/Tắt cảm xúc):
+     *    a. Tìm trong mảng reactions xem user đã thả cảm xúc chưa.
+     *    b. Nếu ĐÃ THẢ cùng emoji đó → XÓA cảm xúc (bỏ thả).
+     *    c. Nếu ĐÃ THẢ emoji khác → CẬP NHẬT thành emoji mới.
+     *    d. Nếu CHƯA THẢ gì → THÊM MỚI { user, emoji } vào mảng.
+     * 4. Lưu lại vào DB, populate thông tin user trong reactions.
+     * 5. Phát sự kiện message_reaction_updated kèm { messageId, reactions } mới nhất
+     *    tới tất cả thành viên trong phòng chat (nhóm hoặc 1-1).
+     */
+    socket.on("send_reaction", async ({ messageId, emoji }) => {
+      try {
+        // Kiểm tra dữ liệu đầu vào hợp lệ
+        if (!messageId || !mongoose.Types.ObjectId.isValid(messageId)) return;
+        if (!emoji || typeof emoji !== "string") return;
+
+        const doc = await Message.findById(messageId);
+        if (!doc || doc.isRecalled) return;
+
+        // Kiểm tra quyền truy cập: user phải thuộc cuộc trò chuyện (nhóm hoặc 1-1)
+        const isGroupMessage = Boolean(doc.groupId);
+        const isParticipant = isGroupMessage
+          ? await Group.exists({ _id: doc.groupId, members: userId })
+          : String(doc.sender) === String(userId) || String(doc.receiver) === String(userId);
+        if (!isParticipant) return;
+
+        // Khởi tạo mảng reactions nếu chưa có
+        if (!doc.reactions) doc.reactions = [];
+
+        /**
+         * Toggle logic cho mảng reactions:
+         * - existingIndex: vị trí trong mảng nếu user đã thả cảm xúc trước đó.
+         * - Nếu tìm thấy (existingIndex >= 0):
+         *   + Cùng emoji → xóa (splice) = bỏ thả.
+         *   + Khác emoji → cập nhật emoji mới tại vị trí đó.
+         * - Nếu không tìm thấy → push { user, emoji } mới vào cuối mảng.
+         */
+        const existingIndex = doc.reactions.findIndex(
+          (r) => String(r.user) === String(userId)
+        );
+
+        if (existingIndex >= 0) {
+          // User đã có reaction — kiểm tra có cùng emoji không
+          if (doc.reactions[existingIndex].emoji === emoji) {
+            // Cùng emoji → xóa cảm xúc (toggle off / bỏ thả)
+            doc.reactions.splice(existingIndex, 1);
+          } else {
+            // Khác emoji → cập nhật sang emoji mới
+            doc.reactions[existingIndex].emoji = emoji;
+          }
+        } else {
+          // User chưa thả cảm xúc nào → thêm mới
+          doc.reactions.push({ user: userId, emoji });
+        }
+
+        await doc.save();
+
+        // Populate thông tin user trong reactions để client hiển thị (avatar, tên...)
+        const updated = await Message.findById(messageId)
+          .populate("reactions.user", SENDER_PROFILE_FIELDS)
+          .lean();
+
+        // Chuẩn bị payload gửi cho client
+        const reactionPayload = {
+          messageId: String(messageId),
+          reactions: (updated?.reactions || []).map((r) => ({
+            user: r.user,
+            emoji: r.emoji
+          }))
+        };
+
+        // Phát sự kiện tới tất cả thành viên trong phòng chat
+        if (isGroupMessage) {
+          // Nhóm: phát vào phòng nhóm + phòng cá nhân từng thành viên
+          io.to(groupRoomId(doc.groupId)).emit("message_reaction_updated", reactionPayload);
+          const group = await Group.findById(doc.groupId).select("members").lean();
+          (group?.members || []).forEach((memberId) => {
+            io.to(userRoomId(memberId)).emit("message_reaction_updated", reactionPayload);
+          });
+        } else {
+          // Chat 1-1: phát vào phòng cá nhân cả 2 bên
+          io.to(userRoomId(doc.sender)).emit("message_reaction_updated", reactionPayload);
+          io.to(userRoomId(doc.receiver)).emit("message_reaction_updated", reactionPayload);
+        }
+      } catch {
+        /* ignore */
+      }
+    });
+
     socket.on("disconnect", () => {
       unregister(userId, socket.id);
       if (!getOnlineUserIds().includes(String(userId))) {
@@ -507,9 +601,23 @@ function attachSocketIO(httpServer) {
   return io;
 }
 
+function emitToUser(userId, event, payload) {
+  if (ioInstance) {
+    ioInstance.to(`user:${String(userId)}`).emit(event, payload);
+  }
+}
+
+function emitToGroup(groupId, event, payload) {
+  if (ioInstance) {
+    ioInstance.to(`group:${String(groupId)}`).emit(event, payload);
+  }
+}
+
 module.exports = {
   attachSocketIO,
   notifyMembersAddedToGroup,
   notifyGroupUpdated,
-  broadcastGroupMessage
+  broadcastGroupMessage,
+  emitToUser,
+  emitToGroup
 };

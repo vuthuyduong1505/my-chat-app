@@ -16,6 +16,7 @@ import {
   Reply,
   Search,
   Send,
+  Smile,
   UserPlus,
   Users,
   X
@@ -24,7 +25,7 @@ import toast from "react-hot-toast";
 import api from "../api";
 import GroupAvatar from "./GroupAvatar";
 import UserAvatar from "./UserAvatar";
-import { getCallingName, getCallingNameFromFullName } from "../utils/displayName";
+import { getCallingName, getCallingNameFromFullName, getDisplayName } from "../utils/displayName";
 import { useAuth } from "../context/AuthContext";
 import { useSocket } from "../context/SocketContext";
 
@@ -130,24 +131,21 @@ function FileAttachmentBubble({ url, fileName, variant = "received" }) {
     <button
       type="button"
       onClick={() => downloadFile(url, displayName)}
-      className={`flex w-full min-w-[168px] max-w-[260px] cursor-pointer items-center gap-2.5 rounded-xl px-3 py-2.5 text-left transition-colors duration-150 ${
-        isMine
-          ? "bg-[#002a30] hover:bg-[#004a54] active:bg-[#003B44]"
-          : "bg-[#e4eaec] hover:bg-[#d5e0e4] active:bg-[#c8d6db]"
-      }`}
+      className={`flex w-full min-w-[168px] max-w-[260px] cursor-pointer items-center gap-2.5 rounded-xl px-3 py-2.5 text-left transition-colors duration-150 ${isMine
+        ? "bg-[#002a30] hover:bg-[#004a54] active:bg-[#003B44]"
+        : "bg-[#e4eaec] hover:bg-[#d5e0e4] active:bg-[#c8d6db]"
+        }`}
       aria-label={`Tải xuống ${displayName}`}
     >
       <div
-        className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${
-          isMine ? "bg-[#00BFA5]/20" : "bg-[#003B44]/12"
-        }`}
+        className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${isMine ? "bg-[#00BFA5]/20" : "bg-[#003B44]/12"
+          }`}
       >
         <FileText size={18} className={isMine ? "text-[#00BFA5]" : "text-[#003B44]"} />
       </div>
       <p
-        className={`min-w-0 flex-1 truncate text-sm font-medium leading-tight ${
-          isMine ? "text-light/95" : "text-[#003B44]"
-        }`}
+        className={`min-w-0 flex-1 truncate text-sm font-medium leading-tight ${isMine ? "text-light/95" : "text-[#003B44]"
+          }`}
         title={displayName}
       >
         {displayName}
@@ -426,7 +424,7 @@ function replyContentLabel(replyTo) {
   return text.length > 80 ? `${text.slice(0, 80)}…` : text;
 }
 
-function replyAuthorName(replyTo, currentUserId, { friend, memberMap } = {}) {
+function replyAuthorName(replyTo, currentUserId, { friend, memberMap, nicknames = [] } = {}) {
   if (!replyTo) return "Thành viên";
   const sid =
     replyTo.senderId ||
@@ -434,6 +432,12 @@ function replyAuthorName(replyTo, currentUserId, { friend, memberMap } = {}) {
       ? String(replyTo.sender._id || replyTo.sender.id || "")
       : String(replyTo.sender || ""));
   if (sid && String(sid) === String(currentUserId)) return "Bạn";
+
+  if (nicknames?.length && sid) {
+    const entry = nicknames.find((n) => String(n.user) === String(sid));
+    if (entry?.nickname) return entry.nickname;
+  }
+
   if (replyTo.senderName) {
     const first = replyTo.senderName.split(" ")[0];
     return first || replyTo.senderName;
@@ -467,10 +471,10 @@ function buildReplySnapshot(message) {
 }
 
 /** Khối trích dẫn tin được trả lời — thanh Cyan bên trái, nhấn để cuộn tới tin gốc */
-function ReplyQuote({ replyTo, isMine, onJump, currentUserId, friend, memberMap }) {
+function ReplyQuote({ replyTo, isMine, onJump, currentUserId, friend, memberMap, nicknames }) {
   if (!replyTo?._id) return null;
 
-  const name = replyAuthorName(replyTo, currentUserId, { friend, memberMap });
+  const name = replyAuthorName(replyTo, currentUserId, { friend, memberMap, nicknames });
   const preview = replyContentLabel(replyTo);
 
   return (
@@ -480,9 +484,8 @@ function ReplyQuote({ replyTo, isMine, onJump, currentUserId, friend, memberMap 
         e.stopPropagation();
         onJump?.(replyTo._id);
       }}
-      className={`mb-1.5 w-full max-w-full rounded-md border-l-[3px] border-[#00BFA5] px-2.5 py-1.5 text-left transition hover:opacity-90 ${
-        isMine ? "bg-black/15" : "bg-[#003B44]/[0.07]"
-      }`}
+      className={`mb-1.5 w-full max-w-full rounded-md border-l-[3px] border-[#00BFA5] px-2.5 py-1.5 text-left transition hover:opacity-90 ${isMine ? "bg-black/15" : "bg-[#003B44]/[0.07]"
+        }`}
     >
       <p className="truncate text-[11px] font-semibold text-[#00BFA5]">{name}</p>
       <p className={`truncate text-[11px] ${isMine ? "text-light/75" : "text-[#003B44]/55"}`}>{preview}</p>
@@ -498,9 +501,8 @@ function ReplyQuote({ replyTo, isMine, onJump, currentUserId, friend, memberMap 
 function MessageMoreMenu({ isMine, onUnsend, onRemoveForMe, onClose, align = "right" }) {
   return (
     <div
-      className={`absolute bottom-full z-50 mb-2 min-w-[200px] overflow-hidden rounded-xl bg-white py-1.5 shadow-xl ${
-        align === "left" ? "left-0" : "right-0"
-      }`}
+      className={`absolute bottom-full z-50 mb-2 min-w-[200px] overflow-hidden rounded-xl bg-white py-1.5 shadow-xl ${align === "left" ? "left-0" : "right-0"
+        }`}
       data-message-action
       role="menu"
       onClick={(e) => e.stopPropagation()}
@@ -550,9 +552,8 @@ function MessageActionBar({ message, isMine, onReply, onUnsend, onRemoveForMe })
 
   if (message.isRecalled || message.pending) return null;
 
-  const btnClass = `relative z-10 flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-primary/75 transition-all duration-200 opacity-0 pointer-events-none hover:bg-gray-200 hover:text-primary group-hover/message-row:pointer-events-auto group-hover/message-row:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100 ${
-    menuOpen ? "pointer-events-auto opacity-100" : ""
-  }`;
+  const btnClass = `relative z-10 flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-primary/75 transition-all duration-200 opacity-0 pointer-events-none hover:bg-gray-200 hover:text-primary group-hover/message-row:pointer-events-auto group-hover/message-row:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100 ${menuOpen ? "pointer-events-auto opacity-100" : ""
+    }`;
 
   return (
     <div className="relative z-10 flex shrink-0 items-center gap-0.5 self-center" data-message-action>
@@ -596,11 +597,118 @@ function MessageActionBar({ message, isMine, onReply, onUnsend, onRemoveForMe })
   );
 }
 
+/** 6 emoji phổ biến dùng cho Reaction Bar */
+const REACTION_EMOJIS = ["❤️", "👍", "😂", "😮", "😢", "🔥"];
+
+/**
+ * Thanh chọn cảm xúc (Reaction Bar) — hiện khi nhấn icon Smile trên bong bóng chat.
+ * Gồm 6 emoji phổ biến xếp ngang, hiệu ứng fade-in mượt mà.
+ * Khi nhấn emoji → gọi onReact(emoji) để gửi sự kiện send_reaction qua socket.
+ */
+function ReactionBar({ onReact, onClose }) {
+  const barRef = useRef(null);
+
+  // Đóng Reaction Bar khi nhấn ra ngoài
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (barRef.current && !barRef.current.contains(e.target)) {
+        onClose?.();
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [onClose]);
+
+  return (
+    <div
+      ref={barRef}
+      className="absolute -top-11 left-1/2 z-50 flex -translate-x-1/2 items-center gap-0.5 rounded-full border border-[#003B44]/10 bg-white px-2 py-1.5 shadow-xl animate-[fadeInUp_0.18s_ease-out]"
+      data-message-action
+      onClick={(e) => e.stopPropagation()}
+    >
+      {REACTION_EMOJIS.map((emoji) => (
+        <button
+          key={emoji}
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onReact(emoji);
+            onClose?.();
+          }}
+          className="flex h-8 w-8 items-center justify-center rounded-full text-lg transition-transform duration-150 hover:scale-125 hover:bg-[#003B44]/5 active:scale-95"
+          aria-label={`Thả cảm xúc ${emoji}`}
+        >
+          {emoji}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * Hiển thị cảm xúc đã thả dưới bong bóng chat.
+ *
+ * Logic gom nhóm (grouping) reactions:
+ * 1. Duyệt mảng reactions, đếm số lượng mỗi loại emoji (emojiCountMap).
+ * 2. Gom thành mảng [{ emoji, count }] và sắp xếp giảm dần theo số lượng.
+ * 3. Hiển thị mỗi loại emoji kèm số lượng (nếu > 1) dưới dạng badge nhỏ xinh.
+ *
+ * Nhấn vào badge → toggle cảm xúc (gọi onReact để gửi lại cùng emoji = bỏ thả,
+ * hoặc thả emoji đó nếu chưa thả).
+ */
+function ReactionDisplay({ reactions, onReact, isMine }) {
+  if (!reactions?.length) return null;
+
+  // Bước 1: Đếm số lượng từng loại emoji trong mảng reactions
+  const emojiCountMap = new Map();
+  reactions.forEach((r) => {
+    const key = r.emoji;
+    emojiCountMap.set(key, (emojiCountMap.get(key) || 0) + 1);
+  });
+
+  // Bước 2: Chuyển Map thành mảng và sắp xếp giảm dần theo số lượng
+  const grouped = Array.from(emojiCountMap.entries())
+    .map(([emoji, count]) => ({ emoji, count }))
+    .sort((a, b) => b.count - a.count);
+
+  return (
+    <div className={`mt-0.5 flex flex-wrap gap-1 ${isMine ? "justify-end" : "justify-start"}`}>
+      {grouped.map(({ emoji, count }) => (
+        <button
+          key={emoji}
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onReact?.(emoji);
+          }}
+          className="flex items-center gap-0.5 rounded-full border border-[#003B44]/10 bg-white px-1.5 py-0.5 text-xs shadow-sm transition-all duration-150 hover:border-[#00BFA5]/40 hover:shadow-md active:scale-95"
+          title={`${count} người đã thả ${emoji}`}
+        >
+          <span className="text-sm leading-none">{emoji}</span>
+          {count > 1 ? (
+            <span className="text-[10px] font-semibold tabular-nums text-[#003B44]/60">{count}</span>
+          ) : null}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 /** Tên gọi phía trên bong bóng chat nhóm — chỉ lấy từ cuối của họ tên đầy đủ */
-function groupBubbleSenderName(m, peerUser) {
-  if (m.sender && typeof m.sender === "object") {
-    const calling = getCallingName(m.sender);
-    if (calling) return calling;
+function groupBubbleSenderName(m, peerUser, nicknames = []) {
+  const sid = getSenderId(m);
+  if (sid) {
+    let fallbackUser = null;
+    if (m.sender && typeof m.sender === "object") fallbackUser = m.sender;
+    else if (peerUser) fallbackUser = peerUser;
+
+    // First try nickname
+    if (nicknames?.length) {
+      const entry = nicknames.find((n) => String(n.user) === String(sid));
+      if (entry?.nickname) return entry.nickname;
+    }
+
+    if (fallbackUser) return getCallingName(fallbackUser) || "Thành viên";
   }
   if (m.senderName) {
     return getCallingNameFromFullName(m.senderName) || m.senderName;
@@ -700,15 +808,18 @@ function MessageRow({
   friend,
   memberMap,
   showSeenReceipt,
-  groupSeenViewers
+  groupSeenViewers,
+  onReact,
+  nicknames
 }) {
+  /** State mở/đóng Reaction Bar cho tin nhắn này */
+  const [showReactionBar, setShowReactionBar] = useState(false);
   if (message.isRecalled) {
     const recalledRadius = getGroupedBubbleRadius(isMine, isFirstInGroup, isLastInGroup);
     const recalledBubble = (
       <div
-        className={`min-w-0 max-w-[80%] px-3.5 py-2.5 text-sm italic shadow-sm ${recalledRadius} ${
-          isMine ? "bg-[#003B44]/75 text-light/80" : "bg-gray-200 text-[#003B44]/55"
-        }`}
+        className={`min-w-0 max-w-[80%] px-3.5 py-2.5 text-sm italic shadow-sm ${recalledRadius} ${isMine ? "bg-[#003B44]/75 text-light/80" : "bg-gray-200 text-[#003B44]/55"
+          }`}
       >
         {RECALLED_TEXT}
       </div>
@@ -797,6 +908,44 @@ function MessageRow({
     />
   );
 
+  /**
+   * Nút Smile (trigger mở Reaction Bar) — hiện khi hover bong bóng chat.
+   * Vị trí: phía đối diện Avatar (tin mình → bên trái, tin người khác → bên phải).
+   * Khi nhấn → toggle hiển thị ReactionBar chứa 6 emoji.
+   */
+  const reactionTrigger = !message.isRecalled && !message.pending ? (
+    <div className="relative">
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          setShowReactionBar((v) => !v);
+        }}
+        className={`relative z-10 flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-primary/60 transition-all duration-200 opacity-0 pointer-events-none hover:bg-[#00BFA5]/10 hover:text-[#00BFA5] group-hover/message-row:pointer-events-auto group-hover/message-row:opacity-100 ${showReactionBar ? "pointer-events-auto opacity-100 bg-[#00BFA5]/10 text-[#00BFA5]" : ""
+          }`}
+        aria-label="Thả cảm xúc"
+        title="Thả cảm xúc"
+      >
+        <Smile size={14} />
+      </button>
+      {showReactionBar ? (
+        <ReactionBar
+          onReact={(emoji) => onReact?.(message, emoji)}
+          onClose={() => setShowReactionBar(false)}
+        />
+      ) : null}
+    </div>
+  ) : null;
+
+  /** Hiển thị các cảm xúc đã thả dưới bong bóng */
+  const reactionDisplay = (
+    <ReactionDisplay
+      reactions={message.reactions}
+      onReact={(emoji) => onReact?.(message, emoji)}
+      isMine={isMine}
+    />
+  );
+
   const quoteEl = message.replyTo ? (
     <ReplyQuote
       replyTo={message.replyTo}
@@ -805,6 +954,7 @@ function MessageRow({
       currentUserId={currentUserId}
       friend={friend}
       memberMap={memberMap}
+      nicknames={nicknames}
     />
   ) : null;
 
@@ -853,11 +1003,13 @@ function MessageRow({
         <div className="flex max-w-[min(92%,480px)] flex-row items-end gap-1.5">
           <div className="flex shrink-0 items-center gap-0.5 self-end">
             {hoverTimeAside}
+            {reactionTrigger}
             {actionBar}
           </div>
           {messageBody}
           {avatarSlot}
         </div>
+        {reactionDisplay}
         {showSeenReceipt ? <SeenReceipt user={readReceiptUser} /> : null}
         {isGroupChat && groupSeenViewers?.length ? <GroupSeenAvatars viewers={groupSeenViewers} /> : null}
       </div>
@@ -865,18 +1017,22 @@ function MessageRow({
   }
 
   return (
-    <div className="group flex max-w-[min(92%,480px)] flex-row items-end gap-1.5">
-      {avatarSlot}
-      <div className="flex min-w-0 flex-col items-start">
-        {senderNameEl}
-        <div className="flex items-end gap-0.5">
-          {messageBody}
-          <div className="flex shrink-0 items-center gap-0.5 self-end">
-            {actionBar}
-            {hoverTimeAside}
+    <div className="group flex max-w-[min(92%,480px)] flex-col items-start gap-0">
+      <div className="flex w-full flex-row items-end gap-1.5">
+        {avatarSlot}
+        <div className="flex min-w-0 flex-col items-start">
+          {senderNameEl}
+          <div className="flex items-end gap-0.5">
+            {messageBody}
+            <div className="flex shrink-0 items-center gap-0.5 self-end">
+              {reactionTrigger}
+              {actionBar}
+              {hoverTimeAside}
+            </div>
           </div>
         </div>
       </div>
+      <div className="pl-10">{reactionDisplay}</div>
     </div>
   );
 }
@@ -1098,11 +1254,10 @@ function ChatMediaGallerySection({ chatId, isGroupChat, messages, onOpenImage })
             <button
               type="button"
               onClick={() => setMediaTab("media")}
-              className={`flex flex-1 items-center justify-center gap-1.5 rounded-full py-2 text-xs font-medium transition ${
-                mediaTab === "media"
-                  ? "bg-[#003B44] text-[#00BFA5]"
-                  : "text-[#003B44]/55 hover:text-[#003B44]"
-              }`}
+              className={`flex flex-1 items-center justify-center gap-1.5 rounded-full py-2 text-xs font-medium transition ${mediaTab === "media"
+                ? "bg-[#003B44] text-[#00BFA5]"
+                : "text-[#003B44]/55 hover:text-[#003B44]"
+                }`}
             >
               <Image size={14} />
               File phương tiện
@@ -1110,11 +1265,10 @@ function ChatMediaGallerySection({ chatId, isGroupChat, messages, onOpenImage })
             <button
               type="button"
               onClick={() => setMediaTab("files")}
-              className={`flex flex-1 items-center justify-center gap-1.5 rounded-full py-2 text-xs font-medium transition ${
-                mediaTab === "files"
-                  ? "bg-[#003B44] text-[#00BFA5]"
-                  : "text-[#003B44]/55 hover:text-[#003B44]"
-              }`}
+              className={`flex flex-1 items-center justify-center gap-1.5 rounded-full py-2 text-xs font-medium transition ${mediaTab === "files"
+                ? "bg-[#003B44] text-[#00BFA5]"
+                : "text-[#003B44]/55 hover:text-[#003B44]"
+                }`}
             >
               <FileText size={14} />
               File
@@ -1328,9 +1482,8 @@ function AddGroupMembersModal({ open, onClose, groupId, existingMemberIds, onAdd
                 return (
                   <li key={id}>
                     <label
-                      className={`flex cursor-pointer items-center gap-3 rounded-xl border px-2 py-2 transition ${
-                        checked ? "border-[#00BFA5]/40 bg-[#00BFA5]/10" : "border-transparent hover:bg-[#003B44]/5"
-                      }`}
+                      className={`flex cursor-pointer items-center gap-3 rounded-xl border px-2 py-2 transition ${checked ? "border-[#00BFA5]/40 bg-[#00BFA5]/10" : "border-transparent hover:bg-[#003B44]/5"
+                        }`}
                     >
                       <input type="checkbox" checked={checked} onChange={() => toggle(id)} className="accent-[#00BFA5]" />
                       <UserAvatar user={friend} size="sm" alt="" />
@@ -1361,7 +1514,117 @@ function AddGroupMembersModal({ open, onClose, groupId, existingMemberIds, onAdd
   );
 }
 
-function ChatWindow({ friend, group, groupId: routeGroupId, currentUserId, onGroupChange, onLeaveGroup }) {
+/** Modal chỉnh sửa biệt danh */
+function NicknameModal({ open, onClose, participants, nicknames, onSave }) {
+  const [editingId, setEditingId] = useState(null);
+  const [editValue, setEditValue] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    if (!open) {
+      setEditingId(null);
+      setEditValue("");
+    }
+  }, [open]);
+
+  if (!open) return null;
+
+  const handleStartEdit = (user) => {
+    const id = String(user._id || user.id);
+    const existing = nicknames.find((n) => String(n.user) === id);
+    setEditingId(id);
+    setEditValue(existing?.nickname || "");
+  };
+
+  const handleSave = async (user) => {
+    setSubmitting(true);
+    try {
+      await onSave(String(user._id || user.id), editValue);
+      setEditingId(null);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 sm:p-6">
+      <div className="modal-backdrop-in absolute inset-0 bg-[#003B44]/40 backdrop-blur-sm" onClick={onClose} />
+      <div className="modal-panel-in relative flex max-h-full w-full max-w-md flex-col overflow-hidden rounded-2xl bg-white shadow-2xl shadow-[#003B44]/25 ring-1 ring-[#003B44]/8">
+        <div className="flex shrink-0 items-center justify-between border-b border-[#003B44]/10 bg-light px-5 py-4">
+          <h2 className="text-lg font-semibold text-[#003B44]">Chỉnh sửa biệt danh</h2>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-full p-2 text-[#003B44]/60 transition hover:bg-[#003B44]/8 hover:text-[#003B44]"
+          >
+            <X size={20} />
+          </button>
+        </div>
+        <div className="flex-1 overflow-y-auto p-2">
+          {participants.map((user) => {
+            const id = String(user._id || user.id);
+            const existing = nicknames.find((n) => String(n.user) === id);
+            const currentNickname = existing?.nickname || "";
+            const isEditing = editingId === id;
+
+            return (
+              <div key={id} className="flex items-center gap-3 rounded-xl p-3 hover:bg-[#003B44]/5">
+                <UserAvatar user={user} size="md" />
+                <div className="min-w-0 flex-1">
+                  {isEditing ? (
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="text"
+                        autoFocus
+                        value={editValue}
+                        onChange={(e) => setEditValue(e.target.value)}
+                        placeholder="Nhập biệt danh..."
+                        className="w-full rounded-lg border border-[#003B44]/20 bg-white px-3 py-1.5 text-sm text-[#003B44] outline-none focus:border-[#00BFA5] focus:ring-1 focus:ring-[#00BFA5]"
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") handleSave(user);
+                          if (e.key === "Escape") setEditingId(null);
+                        }}
+                      />
+                      <button
+                        onClick={() => handleSave(user)}
+                        disabled={submitting}
+                        className="shrink-0 rounded-lg bg-[#00BFA5] px-3 py-1.5 text-sm font-semibold text-white transition hover:bg-[#00A891] disabled:opacity-50"
+                      >
+                        {submitting ? <Loader2 size={16} className="animate-spin" /> : "Lưu"}
+                      </button>
+                    </div>
+                  ) : (
+                    <>
+                      <p className="truncate text-sm font-semibold text-[#003B44]">
+                        {currentNickname || `${user.firstName || ""} ${user.lastName || ""}`.trim() || user.email}
+                      </p>
+                      {currentNickname && (
+                        <p className="truncate text-xs text-[#003B44]/60">
+                          {`${user.firstName || ""} ${user.lastName || ""}`.trim() || user.email}
+                        </p>
+                      )}
+                    </>
+                  )}
+                </div>
+                {!isEditing && (
+                  <button
+                    onClick={() => handleStartEdit(user)}
+                    className="shrink-0 rounded-full p-2 text-[#003B44]/60 transition hover:bg-[#003B44]/8 hover:text-[#00BFA5]"
+                    title="Đổi biệt danh"
+                  >
+                    <Edit2 size={16} />
+                  </button>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ChatWindow({ friend, group, groupId: routeGroupId, currentUserId, nicknames: initialNicknames = [], onGroupChange, onLeaveGroup }) {
   const navigate = useNavigate();
   const { user } = useAuth();
   const { socket, connected, onlineUsers } = useSocket();
@@ -1371,7 +1634,9 @@ function ChatWindow({ friend, group, groupId: routeGroupId, currentUserId, onGro
   const [showAddMembersModal, setShowAddMembersModal] = useState(false);
   const [showRenameModal, setShowRenameModal] = useState(false);
   const [showLeaveConfirmModal, setShowLeaveConfirmModal] = useState(false);
+  const [showNicknameModal, setShowNicknameModal] = useState(false);
   const [localGroup, setLocalGroup] = useState(group);
+  const [localNicknames, setLocalNicknames] = useState(initialNicknames);
   const [leavingGroup, setLeavingGroup] = useState(false);
   const [updatingGroup, setUpdatingGroup] = useState(false);
   const groupAvatarInputRef = useRef(null);
@@ -1394,6 +1659,10 @@ function ChatWindow({ friend, group, groupId: routeGroupId, currentUserId, onGro
   useEffect(() => {
     setLocalGroup(group);
   }, [group]);
+
+  useEffect(() => {
+    setLocalNicknames(initialNicknames || []);
+  }, [initialNicknames]);
 
   const activeGroup = isGroupChat ? localGroup || group : null;
 
@@ -1435,9 +1704,8 @@ function ChatWindow({ friend, group, groupId: routeGroupId, currentUserId, onGro
 
   const chatTitle = useMemo(() => {
     if (isGroupChat) return activeGroup?.name || "Nhóm chat";
-    const n = `${friend?.firstName || ""} ${friend?.lastName || ""}`.trim();
-    return n || friend?.email || "Bạn bè";
-  }, [friend, activeGroup, isGroupChat]);
+    return getDisplayName(friend?._id || friend?.id, localNicknames, friend) || "Bạn bè";
+  }, [friend, activeGroup, isGroupChat, localNicknames]);
 
   const chatSubtitle = useMemo(() => {
     if (isGroupChat) {
@@ -1521,6 +1789,46 @@ function ChatWindow({ friend, group, groupId: routeGroupId, currentUserId, onGro
       setLeavingGroup(false);
     }
   };
+
+  const handleSaveNickname = async (targetUserId, nickname) => {
+    if (!chatId) return;
+    try {
+      const res = await api.put(`/conversations/${chatId}/nickname`, {
+        targetUserId,
+        nickname
+      });
+      const updatedNicknames = res.data?.nicknames || [];
+      setLocalNicknames(updatedNicknames);
+
+      // Phát CustomEvent đồng bộ HomePage
+      window.dispatchEvent(
+        new CustomEvent("nickname-locally-updated", {
+          detail: { chatId, isGroup: isGroupChat, nicknames: updatedNicknames }
+        })
+      );
+
+      toast.success("Cập nhật biệt danh thành công.");
+    } catch (err) {
+      toast.error(err?.response?.data?.message || "Không thể cập nhật biệt danh.");
+      throw err;
+    }
+  };
+
+  useEffect(() => {
+    if (!socket || !chatId) return undefined;
+
+    const onNicknameUpdated = (data) => {
+      const { groupId, peerId, nicknames } = data;
+      if (isGroupChat && groupId && String(groupId) === String(chatId)) {
+        setLocalNicknames(nicknames || []);
+      } else if (!isGroupChat && peerId && String(peerId) === String(chatId)) {
+        setLocalNicknames(nicknames || []);
+      }
+    };
+
+    socket.on("nickname_updated", onNicknameUpdated);
+    return () => socket.off("nickname_updated", onNicknameUpdated);
+  }, [socket, chatId, isGroupChat]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -1638,7 +1946,7 @@ function ChatWindow({ friend, group, groupId: routeGroupId, currentUserId, onGro
       const inConv = isGroupChat
         ? String(msg.groupId) === String(chatId)
         : (msgSenderId === me && msg.receiver === String(chatId)) ||
-          (msgSenderId === String(chatId) && msg.receiver === me);
+        (msgSenderId === String(chatId) && msg.receiver === me);
       if (!inConv) return;
 
       setMessages((prev) => {
@@ -1690,7 +1998,7 @@ function ChatWindow({ friend, group, groupId: routeGroupId, currentUserId, onGro
       const inConv = isGroupChat
         ? String(updated.groupId) === String(chatId)
         : (updatedSenderId === me && updated.receiver === String(chatId)) ||
-          (updated.receiver === me && updatedSenderId === String(chatId));
+        (updated.receiver === me && updatedSenderId === String(chatId));
       if (!inConv) return;
 
       if ((updated.hiddenFor || []).map(String).includes(me)) {
@@ -1703,15 +2011,34 @@ function ChatWindow({ friend, group, groupId: routeGroupId, currentUserId, onGro
       );
     };
 
+    /**
+     * Lắng nghe sự kiện message_reaction_updated từ server:
+     * - Nhận { messageId, reactions } — danh sách reactions mới nhất.
+     * - Tìm tin nhắn tương ứng trong state và cập nhật mảng reactions.
+     * - Cập nhật real-time không cần tải lại trang.
+     */
+    const onReactionUpdated = ({ messageId, reactions }) => {
+      if (!messageId) return;
+      setMessages((prev) =>
+        prev.map((m) =>
+          String(m._id) === String(messageId)
+            ? { ...m, reactions: reactions || [] }
+            : m
+        )
+      );
+    };
+
     socket.on("new_message", onNew);
     socket.on("group_message_seen", onGroupMessageSeen);
     socket.on("messages_read", onMessagesRead);
     socket.on("message_updated", onMessageUpdated);
+    socket.on("message_reaction_updated", onReactionUpdated);
     return () => {
       socket.off("new_message", onNew);
       socket.off("group_message_seen", onGroupMessageSeen);
       socket.off("messages_read", onMessagesRead);
       socket.off("message_updated", onMessageUpdated);
+      socket.off("message_reaction_updated", onReactionUpdated);
     };
   }, [socket, chatId, currentUserId, markAsRead, isGroupChat]);
 
@@ -1764,18 +2091,32 @@ function ChatWindow({ friend, group, groupId: routeGroupId, currentUserId, onGro
     [socket]
   );
 
+  /**
+   * Gửi / toggle cảm xúc cho tin nhắn qua socket:
+   * - Nhận message object và emoji string.
+   * - Emit sự kiện send_reaction kèm { messageId, emoji }.
+   * - Server xử lý toggle logic và phát lại message_reaction_updated.
+   */
+  const handleSendReaction = useCallback(
+    (message, emoji) => {
+      if (!socket?.connected || !message?._id || message.pending) return;
+      socket.emit("send_reaction", { messageId: String(message._id), emoji });
+    },
+    [socket]
+  );
+
   const emitChatMessage = ({ content = "", fileUrl = "", fileType = "", fileName = "" }) => {
     const tempId = `t-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
     const meId = String(currentUserId);
     const replySnap = replyTarget ? { ...replyTarget } : null;
     const senderProfile = user
       ? {
-          _id: meId,
-          firstName: user.firstName || "",
-          lastName: user.lastName || "",
-          email: user.email || "",
-          avatar: user.avatar || ""
-        }
+        _id: meId,
+        firstName: user.firstName || "",
+        lastName: user.lastName || "",
+        email: user.email || "",
+        avatar: user.avatar || ""
+      }
       : meId;
     const optimistic = {
       _id: tempId,
@@ -1960,11 +2301,10 @@ function ChatWindow({ friend, group, groupId: routeGroupId, currentUserId, onGro
           <button
             type="button"
             onClick={() => setInfoSidebarOpen((v) => !v)}
-            className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full transition-all ${
-              infoSidebarOpen
-                ? "bg-[#00BFA5] text-[#003B44] shadow-md"
-                : "bg-[#003B44]/8 text-[#003B44] hover:bg-[#003B44]/12"
-            }`}
+            className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full transition-all ${infoSidebarOpen
+              ? "bg-[#00BFA5] text-[#003B44] shadow-md"
+              : "bg-[#003B44]/8 text-[#003B44] hover:bg-[#003B44]/12"
+              }`}
             aria-label={infoSidebarOpen ? "Ẩn thông tin cuộc trò chuyện" : "Xem thông tin cuộc trò chuyện"}
             aria-pressed={infoSidebarOpen}
           >
@@ -1973,214 +2313,215 @@ function ChatWindow({ friend, group, groupId: routeGroupId, currentUserId, onGro
         </header>
 
         <div className="relative z-10 flex min-h-0 flex-1 flex-col overflow-hidden">
-        <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 md:px-5">
-          {loadingHistory ? (
-            <div className="flex justify-center py-10 text-primary/45">
-              <Loader2 className="animate-spin" size={22} />
-            </div>
-          ) : visibleMessages.length === 0 ? (
-            <p className="py-8 text-center text-sm text-primary/45">Chưa có tin nhắn nào</p>
-          ) : (
-            visibleMessages.map((m, index) => {
-              const previousMessage = index > 0 ? visibleMessages[index - 1] : null;
-              const nextMessage = index < visibleMessages.length - 1 ? visibleMessages[index + 1] : null;
+          <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 md:px-5">
+            {loadingHistory ? (
+              <div className="flex justify-center py-10 text-primary/45">
+                <Loader2 className="animate-spin" size={22} />
+              </div>
+            ) : visibleMessages.length === 0 ? (
+              <p className="py-8 text-center text-sm text-primary/45">Chưa có tin nhắn nào</p>
+            ) : (
+              visibleMessages.map((m, index) => {
+                const previousMessage = index > 0 ? visibleMessages[index - 1] : null;
+                const nextMessage = index < visibleMessages.length - 1 ? visibleMessages[index + 1] : null;
 
-              /*
-               * Tin nhắn hệ thống (messageType === 'system'): hiển thị giữa khung chat,
-               * không avatar / bong bóng / menu xóa-trả lời — do server tạo khi có sự kiện nhóm.
-               */
-              if (isSystemMessage(m)) {
+                /*
+                 * Tin nhắn hệ thống (messageType === 'system'): hiển thị giữa khung chat,
+                 * không avatar / bong bóng / menu xóa-trả lời — do server tạo khi có sự kiện nhóm.
+                 */
+                if (isSystemMessage(m)) {
+                  const currentDate = new Date(m.createdAt);
+                  const previousDate = previousMessage ? new Date(previousMessage.createdAt) : null;
+                  const hasValidCurrentDate = !Number.isNaN(currentDate.getTime());
+                  const hasValidPreviousDate = previousDate && !Number.isNaN(previousDate.getTime());
+                  const isFirstMessage = index === 0;
+                  const isNewDay =
+                    hasValidCurrentDate && hasValidPreviousDate
+                      ? !isSameDate(currentDate, previousDate)
+                      : false;
+                  const isOverThirtyMinutes =
+                    hasValidCurrentDate && hasValidPreviousDate
+                      ? currentDate.getTime() - previousDate.getTime() > 30 * 60 * 1000
+                      : false;
+                  const shouldShowTimestampSeparator = isFirstMessage || isNewDay || isOverThirtyMinutes;
+                  const separatorText = formatVietnameseChatTime(m.createdAt);
+
+                  return (
+                    <div key={String(m._id)} className="my-5 scroll-mt-4">
+                      {shouldShowTimestampSeparator && separatorText ? (
+                        <div className="mb-4 text-center text-[11px] text-primary/40">{separatorText}</div>
+                      ) : null}
+                      <div className="flex justify-center px-2">
+                        <p className="max-w-[min(100%,320px)] text-center text-xs leading-relaxed text-gray-400">
+                          {m.content}
+                        </p>
+                      </div>
+                    </div>
+                  );
+                }
+
+                const isMine = isMessageMine(m, currentUserId);
+
+                // So sánh prevMessage / nextMessage để biết tin đứng đầu hay cuối nhóm gom
+                const { isFirstInGroup, isLastInGroup } = getMessageGroupPosition(
+                  m,
+                  previousMessage,
+                  nextMessage
+                );
+
                 const currentDate = new Date(m.createdAt);
                 const previousDate = previousMessage ? new Date(previousMessage.createdAt) : null;
+
                 const hasValidCurrentDate = !Number.isNaN(currentDate.getTime());
                 const hasValidPreviousDate = previousDate && !Number.isNaN(previousDate.getTime());
                 const isFirstMessage = index === 0;
                 const isNewDay =
-                  hasValidCurrentDate && hasValidPreviousDate
-                    ? !isSameDate(currentDate, previousDate)
-                    : false;
+                  hasValidCurrentDate && hasValidPreviousDate ? !isSameDate(currentDate, previousDate) : false;
                 const isOverThirtyMinutes =
                   hasValidCurrentDate && hasValidPreviousDate
                     ? currentDate.getTime() - previousDate.getTime() > 30 * 60 * 1000
                     : false;
                 const shouldShowTimestampSeparator = isFirstMessage || isNewDay || isOverThirtyMinutes;
                 const separatorText = formatVietnameseChatTime(m.createdAt);
+                const hoverTime = formatHoverTime(m.createdAt);
+                const avatarUser = resolveMessageAvatar(m, isMine, {
+                  user,
+                  friend,
+                  memberMap,
+                  currentUserId,
+                  isGroupChat
+                });
+                const peerUser = avatarUser;
+                const senderLabel =
+                  !isMine && isGroupChat && isFirstInGroup
+                    ? groupBubbleSenderName(m, peerUser, localNicknames)
+                    : null;
+
+                // mt-0.5 trong cùng nhóm; mt-4 khi bắt đầu nhóm mới (khác người gửi / > 30 phút)
+                const groupSpacingClass = isFirstInGroup && index > 0 ? "mt-4" : !isFirstInGroup ? "mt-0.5" : "";
 
                 return (
-                  <div key={String(m._id)} className="my-5 scroll-mt-4">
+                  <div
+                    key={String(m._id)}
+                    ref={(el) => {
+                      if (el) messageRefs.current[String(m._id)] = el;
+                    }}
+                    className={`w-full scroll-mt-4 transition-[box-shadow] duration-300 ${groupSpacingClass}`}
+                  >
                     {shouldShowTimestampSeparator && separatorText ? (
-                      <div className="mb-4 text-center text-[11px] text-primary/40">{separatorText}</div>
+                      <div className="my-4 text-center text-[11px] text-primary/40">{separatorText}</div>
                     ) : null}
-                    <div className="flex justify-center px-2">
-                      <p className="max-w-[min(100%,320px)] text-center text-xs leading-relaxed text-gray-400">
-                        {m.content}
-                      </p>
+
+                    <div
+                      className={`group/message-row group flex w-full ${isMine ? "justify-end" : "justify-start"}`}
+                      data-message-row-root
+                    >
+                      <MessageRow
+                        message={m}
+                        isMine={isMine}
+                        isFirstInGroup={isFirstInGroup}
+                        isLastInGroup={isLastInGroup}
+                        hoverTime={hoverTime}
+                        onOpenImage={setLightboxUrl}
+                        avatarUser={avatarUser}
+                        senderLabel={senderLabel}
+                        isGroupChat={isGroupChat}
+                        readReceiptUser={!isGroupChat ? friend : null}
+                        onUnsend={handleUnsendMessage}
+                        onRemoveForMe={handleRemoveForMe}
+                        onReply={handleReplyToMessage}
+                        onScrollToReply={scrollToMessage}
+                        onReact={handleSendReaction}
+                        currentUserId={currentUserId}
+                        friend={friend}
+                        memberMap={memberMap}
+                        showSeenReceipt={
+                          !isGroupChat &&
+                          isMine &&
+                          lastMyMessageId === String(m._id) &&
+                          Boolean(m.isRead) &&
+                          !m.pending
+                        }
+                        groupSeenViewers={
+                          isGroupChat && isMine ? groupSeenAvatarMap.get(String(m._id)) || [] : []
+                        }
+                        nicknames={localNicknames}
+                      />
                     </div>
                   </div>
                 );
-              }
+              })
+            )}
+            <div ref={bottomRef} />
+          </div>
 
-              const isMine = isMessageMine(m, currentUserId);
+          <div className="relative z-10 shrink-0 border-t border-primary/10 bg-light/90 p-3 backdrop-blur-sm md:p-4">
+            <input ref={fileInputRef} type="file" multiple className="hidden" onChange={handleChooseFile} />
 
-              // So sánh prevMessage / nextMessage để biết tin đứng đầu hay cuối nhóm gom
-              const { isFirstInGroup, isLastInGroup } = getMessageGroupPosition(
-                m,
-                previousMessage,
-                nextMessage
-              );
+            <AttachmentPreviewStrip
+              attachments={attachments}
+              onRemove={removeQueuedAttachment}
+              onAddMore={openFilePicker}
+              disabled={sending || !connected}
+            />
 
-              const currentDate = new Date(m.createdAt);
-              const previousDate = previousMessage ? new Date(previousMessage.createdAt) : null;
-
-              const hasValidCurrentDate = !Number.isNaN(currentDate.getTime());
-              const hasValidPreviousDate = previousDate && !Number.isNaN(previousDate.getTime());
-              const isFirstMessage = index === 0;
-              const isNewDay =
-                hasValidCurrentDate && hasValidPreviousDate ? !isSameDate(currentDate, previousDate) : false;
-              const isOverThirtyMinutes =
-                hasValidCurrentDate && hasValidPreviousDate
-                  ? currentDate.getTime() - previousDate.getTime() > 30 * 60 * 1000
-                  : false;
-              const shouldShowTimestampSeparator = isFirstMessage || isNewDay || isOverThirtyMinutes;
-              const separatorText = formatVietnameseChatTime(m.createdAt);
-              const hoverTime = formatHoverTime(m.createdAt);
-              const avatarUser = resolveMessageAvatar(m, isMine, {
-                user,
-                friend,
-                memberMap,
-                currentUserId,
-                isGroupChat
-              });
-              const peerUser = avatarUser;
-              // Tên gọi (từ cuối họ tên) — chỉ hiện ở tin đầu nhóm, không phải tin của mình
-              const senderLabel =
-                !isMine && isGroupChat && isFirstInGroup
-                  ? groupBubbleSenderName(m, peerUser)
-                  : null;
-
-              // mt-0.5 trong cùng nhóm; mt-4 khi bắt đầu nhóm mới (khác người gửi / > 30 phút)
-              const groupSpacingClass = isFirstInGroup && index > 0 ? "mt-4" : !isFirstInGroup ? "mt-0.5" : "";
-
-              return (
-                <div
-                  key={String(m._id)}
-                  ref={(el) => {
-                    if (el) messageRefs.current[String(m._id)] = el;
-                  }}
-                  className={`w-full scroll-mt-4 transition-[box-shadow] duration-300 ${groupSpacingClass}`}
-                >
-                  {shouldShowTimestampSeparator && separatorText ? (
-                    <div className="my-4 text-center text-[11px] text-primary/40">{separatorText}</div>
-                  ) : null}
-
-                  <div
-                    className={`group/message-row group flex w-full ${isMine ? "justify-end" : "justify-start"}`}
-                    data-message-row-root
-                  >
-                    <MessageRow
-                      message={m}
-                      isMine={isMine}
-                      isFirstInGroup={isFirstInGroup}
-                      isLastInGroup={isLastInGroup}
-                      hoverTime={hoverTime}
-                      onOpenImage={setLightboxUrl}
-                      avatarUser={avatarUser}
-                      senderLabel={senderLabel}
-                      isGroupChat={isGroupChat}
-                      readReceiptUser={!isGroupChat ? friend : null}
-                      onUnsend={handleUnsendMessage}
-                      onRemoveForMe={handleRemoveForMe}
-                      onReply={handleReplyToMessage}
-                      onScrollToReply={scrollToMessage}
-                      currentUserId={currentUserId}
-                      friend={friend}
-                      memberMap={memberMap}
-                      showSeenReceipt={
-                        !isGroupChat &&
-                        isMine &&
-                        lastMyMessageId === String(m._id) &&
-                        Boolean(m.isRead) &&
-                        !m.pending
-                      }
-                      groupSeenViewers={
-                        isGroupChat && isMine ? groupSeenAvatarMap.get(String(m._id)) || [] : []
-                      }
-                    />
-                  </div>
+            {replyTarget ? (
+              <div className="mb-2 flex items-start gap-2 rounded-xl border-l-4 border-[#00BFA5] bg-[#003B44]/[0.06] px-3 py-2">
+                <div className="min-w-0 flex-1">
+                  <p className="text-xs font-semibold text-[#00BFA5]">
+                    Đang trả lời {replyAuthorName(replyTarget, currentUserId, { friend, memberMap })}
+                  </p>
+                  <p className="mt-0.5 truncate text-xs text-[#003B44]/55">
+                    {replyContentLabel(replyTarget)}
+                  </p>
                 </div>
-              );
-            })
-          )}
-          <div ref={bottomRef} />
-        </div>
-
-        <div className="relative z-10 shrink-0 border-t border-primary/10 bg-light/90 p-3 backdrop-blur-sm md:p-4">
-          <input ref={fileInputRef} type="file" multiple className="hidden" onChange={handleChooseFile} />
-
-          <AttachmentPreviewStrip
-            attachments={attachments}
-            onRemove={removeQueuedAttachment}
-            onAddMore={openFilePicker}
-            disabled={sending || !connected}
-          />
-
-          {replyTarget ? (
-            <div className="mb-2 flex items-start gap-2 rounded-xl border-l-4 border-[#00BFA5] bg-[#003B44]/[0.06] px-3 py-2">
-              <div className="min-w-0 flex-1">
-                <p className="text-xs font-semibold text-[#00BFA5]">
-                  Đang trả lời {replyAuthorName(replyTarget, currentUserId, { friend, memberMap })}
-                </p>
-                <p className="mt-0.5 truncate text-xs text-[#003B44]/55">
-                  {replyContentLabel(replyTarget)}
-                </p>
+                <button
+                  type="button"
+                  onClick={() => setReplyTarget(null)}
+                  className="shrink-0 rounded-lg p-1 text-[#003B44]/50 transition hover:bg-[#003B44]/10 hover:text-[#003B44]"
+                  aria-label="Hủy trả lời"
+                >
+                  <X size={16} />
+                </button>
               </div>
+            ) : null}
+
+            <div className="flex items-center gap-2 rounded-2xl border border-[#003B44]/15 bg-accent/50 p-2 pl-2 shadow-sm focus-within:shadow-md focus-within:ring-2 focus-within:ring-[#00BFA5]/40">
               <button
                 type="button"
-                onClick={() => setReplyTarget(null)}
-                className="shrink-0 rounded-lg p-1 text-[#003B44]/50 transition hover:bg-[#003B44]/10 hover:text-[#003B44]"
-                aria-label="Hủy trả lời"
+                onClick={openFilePicker}
+                disabled={!connected || sending}
+                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#003B44] text-[#00BFA5] transition hover:opacity-90 disabled:opacity-50"
+                aria-label="Đính kèm file"
               >
-                <X size={16} />
+                <Paperclip size={16} />
+              </button>
+              <input
+                type="text"
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                onPaste={handlePaste}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    send();
+                  }
+                }}
+                placeholder={connected ? "Nhập tin nhắn" : "Đang kết nối máy chủ…"}
+                disabled={!connected || sending}
+                className="min-w-0 flex-1 rounded-xl border-0 bg-light px-4 py-2.5 text-sm text-primary placeholder:text-primary/35 outline-none ring-1 ring-[#003B44]/15 transition focus:ring-2 focus:ring-[#00BFA5] disabled:opacity-60"
+              />
+              <button
+                type="button"
+                onClick={send}
+                disabled={!connected || sending || !canSend}
+                className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-[#003B44] text-[#00BFA5] shadow-md transition hover:opacity-90 disabled:opacity-40"
+                aria-label="Gửi"
+              >
+                {sending ? <Loader2 size={18} className="animate-spin" /> : <Send size={18} />}
               </button>
             </div>
-          ) : null}
-
-          <div className="flex items-center gap-2 rounded-2xl border border-[#003B44]/15 bg-accent/50 p-2 pl-2 shadow-sm focus-within:shadow-md focus-within:ring-2 focus-within:ring-[#00BFA5]/40">
-            <button
-              type="button"
-              onClick={openFilePicker}
-              disabled={!connected || sending}
-              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#003B44] text-[#00BFA5] transition hover:opacity-90 disabled:opacity-50"
-              aria-label="Đính kèm file"
-            >
-              <Paperclip size={16} />
-            </button>
-            <input
-              type="text"
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
-              onPaste={handlePaste}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && !e.shiftKey) {
-                  e.preventDefault();
-                  send();
-                }
-              }}
-              placeholder={connected ? "Nhập tin nhắn" : "Đang kết nối máy chủ…"}
-              disabled={!connected || sending}
-              className="min-w-0 flex-1 rounded-xl border-0 bg-light px-4 py-2.5 text-sm text-primary placeholder:text-primary/35 outline-none ring-1 ring-[#003B44]/15 transition focus:ring-2 focus:ring-[#00BFA5] disabled:opacity-60"
-            />
-            <button
-              type="button"
-              onClick={send}
-              disabled={!connected || sending || !canSend}
-              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-[#003B44] text-[#00BFA5] shadow-md transition hover:opacity-90 disabled:opacity-40"
-              aria-label="Gửi"
-            >
-              {sending ? <Loader2 size={18} className="animate-spin" /> : <Send size={18} />}
-            </button>
           </div>
-        </div>
         </div>
 
         {lightboxUrl ? (
@@ -2202,9 +2543,8 @@ function ChatWindow({ friend, group, groupId: routeGroupId, currentUserId, onGro
         - 1-1: avatar + họ tên căn trên (justify-start, pt-10); kích thước đồng bộ với nhóm.
       */}
       <aside
-        className={`relative z-20 flex shrink-0 flex-col overflow-hidden border-l border-[#003B44]/8 bg-light/98 backdrop-blur-md transition-all duration-300 ease-out ${
-          infoSidebarOpen ? "w-[min(100%,340px)] opacity-100" : "w-0 opacity-0 pointer-events-none border-l-0"
-        }`}
+        className={`relative z-20 flex shrink-0 flex-col overflow-hidden border-l border-[#003B44]/8 bg-light/98 backdrop-blur-md transition-all duration-300 ease-out ${infoSidebarOpen ? "w-[min(100%,340px)] opacity-100" : "w-0 opacity-0 pointer-events-none border-l-0"
+          }`}
         aria-hidden={!infoSidebarOpen}
       >
         <div className="flex h-full w-[min(100vw,340px)] flex-col overflow-y-auto rounded-l-2xl">
@@ -2245,6 +2585,19 @@ function ChatWindow({ friend, group, groupId: routeGroupId, currentUserId, onGro
                     Đổi tên
                   </button>
                 </div>
+              </div>
+
+              <div className="border-b border-[#003B44]/8 py-1">
+                <button
+                  type="button"
+                  onClick={() => setShowNicknameModal(true)}
+                  className="flex w-full items-center justify-between px-6 py-4 text-left text-sm font-semibold text-[#003B44] transition hover:bg-[#003B44]/5"
+                >
+                  <span className="flex items-center gap-2">
+                    <Edit2 size={16} className="text-[#00BFA5]" />
+                    Chỉnh sửa biệt danh
+                  </span>
+                </button>
               </div>
 
               <ChatMediaGallerySection
@@ -2325,11 +2678,28 @@ function ChatWindow({ friend, group, groupId: routeGroupId, currentUserId, onGro
           ) : (
             /* Chat 1-1: avatar + tên căn trên; kích thước đồng bộ với khối tiêu đề nhóm */
             <>
-              <div className="flex flex-col items-center justify-start border-b border-[#003B44]/8 px-6 pb-6 pt-10 text-center">
+              <div className="flex flex-col items-center justify-start border-b border-[#003B44]/8 px-6 pb-8 pt-10 text-center">
                 <UserAvatar user={friend} size="lg" className="!h-20 !w-20 rounded-full ring-3 ring-[#00BFA5]/15" alt="" />
                 <h3 className="mt-4 max-w-full truncate text-lg font-bold tracking-tight text-[#003B44]">
-                  {personFullName(friend)}
+                  {getDisplayName(friend?._id || friend?.id, localNicknames, friend)}
                 </h3>
+                {getDisplayName(friend?._id || friend?.id, localNicknames, friend) !== personFullName(friend) && (
+                  <p className="mt-1.5 text-xs text-[#003B44]/55">
+                    {personFullName(friend)}
+                  </p>
+                )}
+              </div>
+              <div className="border-b border-[#003B44]/8 py-1">
+                <button
+                  type="button"
+                  onClick={() => setShowNicknameModal(true)}
+                  className="flex w-full items-center justify-between px-6 py-4 text-left text-sm font-semibold text-[#003B44] transition hover:bg-[#003B44]/5"
+                >
+                  <span className="flex items-center gap-2">
+                    <Edit2 size={16} className="text-[#00BFA5]" />
+                    Chỉnh sửa biệt danh
+                  </span>
+                </button>
               </div>
               <ChatMediaGallerySection
                 chatId={chatId}
@@ -2366,6 +2736,14 @@ function ChatWindow({ friend, group, groupId: routeGroupId, currentUserId, onGro
           />
         </>
       ) : null}
+
+      <NicknameModal
+        open={showNicknameModal}
+        onClose={() => setShowNicknameModal(false)}
+        participants={isGroupChat ? activeGroup?.members || [] : [user, friend].filter(Boolean)}
+        nicknames={localNicknames}
+        onSave={handleSaveNickname}
+      />
     </div>
   );
 }

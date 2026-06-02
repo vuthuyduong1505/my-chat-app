@@ -41,8 +41,35 @@ async function createGroupSystemMessage({ groupId, actorId, content }) {
   return doc;
 }
 
+/**
+ * Tạo tin nhắn hệ thống cho chat 1-1.
+ * Cần truyền đủ senderId và receiverId để tin nhắn hiển thị đúng trong luồng DM.
+ */
+async function createDmSystemMessage({ senderId, receiverId, content }) {
+  const text = String(content || "").trim();
+  if (!text || !senderId || !receiverId) return null;
+
+  const doc = await Message.create({
+    sender: senderId,
+    receiver: receiverId,
+    content: text,
+    messageType: "system"
+  });
+
+  // Import trực tiếp hàm phát sự kiện 1-1 từ socket
+  const { emitToUser } = require("../socket");
+  const { normalizeMessagePayload } = require("./messagePayload");
+  const payload = normalizeMessagePayload(doc);
+  
+  emitToUser(senderId, "new_message", payload);
+  emitToUser(receiverId, "new_message", payload);
+
+  return doc;
+}
+
 module.exports = {
   createGroupSystemMessage,
+  createDmSystemMessage,
   formatUserName,
   resolveUser,
   memberFields
