@@ -202,12 +202,22 @@ export function SocketProvider({ children }) {
       window.dispatchEvent(new CustomEvent("groups-updated"));
     };
 
+    const onRemovedFromGroup = (data) => {
+      const gid = data?.groupId;
+      if (!gid) return;
+      socket.emit("leave_group_chat", { groupId: String(gid) });
+      window.dispatchEvent(new CustomEvent("groups-updated"));
+      window.dispatchEvent(new CustomEvent("removed-from-group", { detail: { groupId: gid } }));
+    };
+
     socket.on("new_message", onNewMessage);
     socket.on("added_to_group", onAddedToGroup);
+    socket.on("removed_from_group", onRemovedFromGroup);
 
     return () => {
       socket.off("new_message", onNewMessage);
       socket.off("added_to_group", onAddedToGroup);
+      socket.off("removed_from_group", onRemovedFromGroup);
     };
   }, [socket, currentUserId]);
 

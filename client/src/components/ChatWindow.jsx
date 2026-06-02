@@ -18,6 +18,7 @@ import {
   Send,
   Smile,
   UserPlus,
+  UserMinus,
   Users,
   X
 } from "lucide-react";
@@ -1647,6 +1648,7 @@ function ChatWindow({ friend, group, groupId: routeGroupId, currentUserId, nickn
   const [sending, setSending] = useState(false);
   const [lightboxUrl, setLightboxUrl] = useState("");
   const [replyTarget, setReplyTarget] = useState(null);
+  const [activeMemberMenuId, setActiveMemberMenuId] = useState(null);
   const bottomRef = useRef(null);
   const fileInputRef = useRef(null);
   const messageRefs = useRef({});
@@ -1813,6 +1815,43 @@ function ChatWindow({ friend, group, groupId: routeGroupId, currentUserId, nickn
       throw err;
     }
   };
+
+  const handleRemoveMember = async (memberId) => {
+    if (!chatId) return;
+    const confirmDelete = window.confirm("Bạn có chắc chắn muốn xóa thành viên này khỏi nhóm không?");
+    if (!confirmDelete) return;
+
+    try {
+      const res = await api.delete(`/groups/${chatId}/members/${memberId}`);
+      toast.success("Đã xóa thành viên khỏi nhóm.");
+      publishGroupUpdate(res.data?.group);
+    } catch (err) {
+      toast.error(err?.response?.data?.message || "Không thể xóa thành viên khỏi nhóm.");
+    }
+  };
+
+  useEffect(() => {
+    if (!activeMemberMenuId) return undefined;
+    const close = (e) => {
+      if (e.target.closest("[data-member-menu]")) return;
+      setActiveMemberMenuId(null);
+    };
+    document.addEventListener("mousedown", close);
+    return () => document.removeEventListener("mousedown", close);
+  }, [activeMemberMenuId]);
+
+  useEffect(() => {
+    const handleRemoved = (e) => {
+      const { groupId } = e.detail;
+      if (chatId && String(groupId) === String(chatId)) {
+        toast.error("Bạn đã bị xóa khỏi nhóm này.");
+        onLeaveGroup?.();
+        navigate("/");
+      }
+    };
+    window.addEventListener("removed-from-group", handleRemoved);
+    return () => window.removeEventListener("removed-from-group", handleRemoved);
+  }, [chatId, onLeaveGroup, navigate]);
 
   useEffect(() => {
     if (!socket || !chatId) return undefined;
@@ -2634,10 +2673,11 @@ function ChatWindow({ friend, group, groupId: routeGroupId, currentUserId, nickn
                         const mid = String(member._id || member.id);
                         const isCreator = mid === groupCreatorId;
                         const isOnline = onlineUserSet.has(mid);
+                        const isMe = mid === String(currentUserId);
                         return (
                           <li
                             key={mid}
-                            className="flex items-center gap-4 rounded-2xl px-3 py-3 transition hover:bg-[#003B44]/[0.04]"
+                            className="relative flex items-center gap-4 rounded-2xl px-3 py-3 transition hover:bg-[#003B44]/[0.04]"
                           >
                             <div className="relative shrink-0">
                               <UserAvatar user={member} size="sm" alt="" />
@@ -2654,6 +2694,53 @@ function ChatWindow({ friend, group, groupId: routeGroupId, currentUserId, nickn
                                   Người tạo nhóm
                                 </p>
                               ) : null}
+                            </div>
+
+                            {/* Dropdown Menu nhỏ theo phong cách Messenger */}
+                            <div className="relative shrink-0" data-member-menu>
+                              <button
+                                type="button"
+                                onClick={() => setActiveMemberMenuId(activeMemberMenuId === mid ? null : mid)}
+                                className="flex h-7 w-7 items-center justify-center rounded-full text-[#003B44]/60 hover:bg-[#003B44]/10 hover:text-[#003B44]"
+                                aria-label="Tuỳ chọn thành viên"
+                                aria-expanded={activeMemberMenuId === mid}
+                              >
+                                <MoreVertical size={14} />
+                              </button>
+                              {activeMemberMenuId === mid && (
+                                <div className="absolute right-0 top-full z-50 mt-1 min-w-[150px] overflow-hidden rounded-xl border border-[#003B44]/10 bg-white py-1 shadow-lg shadow-[#003B44]/8 ring-1 ring-[#003B44]/5 animate-in fade-in slide-in-from-top-1 duration-150">
+                                  {/* Lựa chọn Nhắn tin - Hiển thị cho tất cả thành viên */}
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setActiveMemberMenuId(null);
+                                      // Logic điều hướng 'Nhắn tin': Chuyển người dùng sang màn hình chat 1-1 với thành viên được chọn
+                                      // bằng cách navigate sang tuyến đường `/chat/:userId` và ẩn Right Sidebar để màn hình hiển thị rộng rãi, tối ưu trải nghiệm người dùng.
+                                      setInfoSidebarOpen(false);
+                                      navigate(`/chat/${mid}`);
+                                    }}
+                                    className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs font-semibold text-[#003B44] transition hover:bg-[#003B44]/5"
+                                  >
+                                    <MessageCircle size={14} className="text-[#00BFA5]" />
+                                    Nhắn tin
+                                  </button>
+
+                                  {/* Lựa chọn Xóa khỏi nhóm - Chỉ hiển thị cho Người tạo nhóm đối với các thành viên khác */}
+                                  {String(currentUserId) === String(groupCreatorId) && !isMe && (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setActiveMemberMenuId(null);
+                                        handleRemoveMember(mid);
+                                      }}
+                                      className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs font-semibold text-red-500 transition hover:bg-red-50"
+                                    >
+                                      <UserMinus size={14} className="text-red-500" />
+                                      Xóa khỏi nhóm
+                                    </button>
+                                  )}
+                                </div>
+                              )}
                             </div>
                           </li>
                         );

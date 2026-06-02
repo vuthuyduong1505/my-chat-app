@@ -360,4 +360,70 @@ router.get("/:groupId/messages", authMiddleware, async (req, res) => {
   }
 });
 
+router.delete("/:groupId/members/:memberId", authMiddleware, async (req, res) => {
+  try {
+    const me = req.user.id;
+    const { groupId, memberId } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(groupId) || !mongoose.Types.ObjectId.isValid(memberId)) {
+      return res.status(400).json({ message: "ID không hợp lệ." });
+    }
+
+    const group = await Group.findById(groupId);
+    if (!group) return res.status(404).json({ message: "Không tìm thấy nhóm." });
+
+    // 1. Phân quyền: chỉ người tạo nhóm mới được xóa
+    const creatorId = group.creator || group.admin;
+    if (String(creatorId) !== String(me)) {
+      return res.status(403).json({ message: "Chỉ người tạo nhóm mới có quyền xóa thành viên." });
+    }
+
+    // 2. Không được tự xóa chính mình
+    if (String(me) === String(memberId)) {
+      return res.status(400).json({ message: "Bạn không thể tự xóa mình khỏi nhóm ở đây. Hãy dùng chức năng Rời nhóm." });
+    }
+
+    // Kiểm tra xem thành viên đó có thực sự ở trong nhóm không
+    const isMember = (group.members || []).some(m => String(m) === String(memberId));
+    if (!isMember) {
+      return res.status(400).json({ message: "Thành viên này không thuộc nhóm." });
+    }
+
+    const actor = await resolveUser(me);
+    const targetUser = await resolveUser(memberId);
+
+    // 3. Thực hiện xóa thành viên khỏi nhóm
+    group.members = (group.members || []).filter(m => String(m) !== String(memberId));
+    
+    if (group.nicknames) {
+      group.nicknames = group.nicknames.filter(n => String(n.user) !== String(memberId));
+    }
+    
+    await group.save();
+
+    // 4. Tạo tin nhắn hệ thống
+    const actionText = `${formatUserName(actor)} đã xóa ${formatUserName(targetUser)} khỏi nhóm`;
+    await createGroupSystemMessage({ groupId, actorId: me, content: actionText });
+
+    // 5. Đồng bộ Socket realtime
+    const populated = await Group.findById(groupId)
+      .populate("creator", memberFields)
+      .populate("members", memberFields)
+      .lean();
+
+    const { emitToUser } = require("../socket");
+    emitToUser(memberId, "removed_from_group", { groupId });
+
+    await notifyGroupUpdated(populated);
+
+    return res.status(200).json({
+      message: "Đã xóa thành viên khỏi nhóm thành công.",
+      group: normalizeGroupDoc(populated)
+    });
+  } catch (error) {
+    console.error("DELETE /groups/:groupId/members/:memberId error:", error);
+    return res.status(500).json({ message: "Lỗi máy chủ khi xóa thành viên." });
+  }
+});
+
 module.exports = router;
