@@ -6,6 +6,7 @@ import {
   isDuplicateConversationMessage
 } from "../utils/conversationEvents";
 import { useAuth } from "./AuthContext";
+import api from "../api";
 
 const SocketContext = createContext(null);
 
@@ -22,6 +23,30 @@ export function SocketProvider({ children }) {
   const [unreadCounts, setUnreadCounts] = useState({});
   /** Tin chưa đọc theo nhóm: { [groupId]: count } */
   const [groupUnreadCounts, setGroupUnreadCounts] = useState({});
+  /** Danh sách lời mời kết bạn (bao gồm cả gửi và nhận) để đồng bộ toàn cục */
+  const [friendRequests, setFriendRequests] = useState([]);
+
+  const loadFriendRequests = useCallback(async () => {
+    if (!isAuthenticated || !token) {
+      setFriendRequests([]);
+      return;
+    }
+    try {
+      const [receivedRes, sentRes] = await Promise.all([
+        api.get("/users/friend-requests/received"),
+        api.get("/users/friend-requests/sent")
+      ]);
+      const received = receivedRes.data?.requests || [];
+      const sent = sentRes.data?.requests || [];
+      setFriendRequests([...received, ...sent]);
+    } catch (err) {
+      console.error("Không thể tải danh sách yêu cầu kết bạn:", err);
+    }
+  }, [isAuthenticated, token]);
+
+  useEffect(() => {
+    loadFriendRequests();
+  }, [loadFriendRequests]);
 
   const currentUserId = useMemo(() => {
     if (user?.id) return String(user.id);
@@ -210,14 +235,33 @@ export function SocketProvider({ children }) {
       window.dispatchEvent(new CustomEvent("removed-from-group", { detail: { groupId: gid } }));
     };
 
+    const onFriendRequestAccepted = (data) => {
+      const peer = data?.user;
+      if (!peer) return;
+
+      const peerId = String(peer._id || peer.id);
+      setFriendRequests((prev) => prev.filter(r => {
+        const rSender = String(r.sender?._id || r.sender || "");
+        const rReceiver = String(r.receiver?._id || r.receiver || "");
+        return !(
+          (rSender === String(currentUserId) && rReceiver === peerId) ||
+          (rSender === peerId && rReceiver === String(currentUserId))
+        );
+      }));
+
+      window.dispatchEvent(new Event("social-updated"));
+    };
+
     socket.on("new_message", onNewMessage);
     socket.on("added_to_group", onAddedToGroup);
     socket.on("removed_from_group", onRemovedFromGroup);
+    socket.on("friend_request_accepted", onFriendRequestAccepted);
 
     return () => {
       socket.off("new_message", onNewMessage);
       socket.off("added_to_group", onAddedToGroup);
       socket.off("removed_from_group", onRemovedFromGroup);
+      socket.off("friend_request_accepted", onFriendRequestAccepted);
     };
   }, [socket, currentUserId]);
 
@@ -233,7 +277,10 @@ export function SocketProvider({ children }) {
       setActiveChatFriendId,
       setActiveChatGroupId,
       markFriendAsRead,
-      markGroupAsRead
+      markGroupAsRead,
+      friendRequests,
+      setFriendRequests,
+      loadFriendRequests
     }),
     [
       socket,
@@ -244,7 +291,9 @@ export function SocketProvider({ children }) {
       activeChatFriendId,
       activeChatGroupId,
       markFriendAsRead,
-      markGroupAsRead
+      markGroupAsRead,
+      friendRequests,
+      loadFriendRequests
     ]
   );
 

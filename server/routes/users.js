@@ -272,7 +272,12 @@ router.post("/friend-request/send/:id", authMiddleware, async (req, res) => {
       status: "pending"
     });
 
-    return res.status(201).json({ message: "Gửi lời mời kết bạn thành công.", request });
+    // Populate đầy đủ thông tin của cả sender và receiver để client có thể đồng bộ chéo trang tức thời
+    const populatedRequest = await FriendRequest.findById(request._id)
+      .populate("sender", "firstName lastName email avatar")
+      .populate("receiver", "firstName lastName email avatar");
+
+    return res.status(201).json({ message: "Gửi lời mời kết bạn thành công.", request: populatedRequest });
   } catch (error) {
     if (error?.code === 11000) {
       return res.status(409).json({ message: "Lời mời kết bạn đã tồn tại." });
@@ -304,6 +309,36 @@ router.delete("/friend-request/cancel/:targetUserId", authMiddleware, async (req
   }
 });
 
+/**
+ * GIẢI THÍCH: CÁCH PHÂN LOẠI LỜI MỜI KẾT BẠN DỰA TRÊN VAI TRÒ SENDER VÀ RECEIVER
+ * Lời mời kết bạn trong cơ sở dữ liệu được phân biệt bởi hai trường:
+ * - sender (người gửi): Người chủ động nhấn "Kết bạn".
+ * - receiver (người nhận): Người nhận được yêu cầu và có quyền Chấp nhận / Từ chối.
+ * 
+ * Do đó, để phân loại trên giao diện:
+ * 1. Lời mời đã nhận (Received Requests): Ta tìm các bản ghi có `receiver` là ID người dùng hiện tại
+ *    và `status` là 'pending'. Chúng ta cần populate thông tin của `sender` để hiển thị ai đã gửi cho mình.
+ * 2. Lời mời đã gửi (Sent Requests): Ta tìm các bản ghi có `sender` là ID người dùng hiện tại
+ *    và `status` là 'pending'. Chúng ta cần populate thông tin của `receiver` để hiển thị mình đã gửi cho ai.
+ */
+
+// API lấy danh sách lời mời đã nhận (Received)
+router.get("/friend-requests/received", authMiddleware, async (req, res) => {
+  try {
+    const requests = await FriendRequest.find({
+      receiver: req.user.id,
+      status: "pending"
+    })
+      .populate("sender", "firstName lastName email avatar")
+      .sort({ createdAt: -1 });
+
+    return res.status(200).json({ requests });
+  } catch (error) {
+    return res.status(500).json({ message: "Lỗi máy chủ khi tải lời mời kết bạn đã nhận." });
+  }
+});
+
+// Giữ lại endpoint pending làm alias cho received để tránh gây lỗi ở các phần khác của hệ thống
 router.get("/friend-requests/pending", authMiddleware, async (req, res) => {
   try {
     const requests = await FriendRequest.find({
@@ -316,6 +351,22 @@ router.get("/friend-requests/pending", authMiddleware, async (req, res) => {
     return res.status(200).json({ requests });
   } catch (error) {
     return res.status(500).json({ message: "Lỗi máy chủ khi tải lời mời đang chờ." });
+  }
+});
+
+// API lấy danh sách lời mời đã gửi (Sent)
+router.get("/friend-requests/sent", authMiddleware, async (req, res) => {
+  try {
+    const requests = await FriendRequest.find({
+      sender: req.user.id,
+      status: "pending"
+    })
+      .populate("receiver", "firstName lastName email avatar")
+      .sort({ createdAt: -1 });
+
+    return res.status(200).json({ requests });
+  } catch (error) {
+    return res.status(500).json({ message: "Lỗi máy chủ khi tải lời mời kết bạn đã gửi." });
   }
 });
 

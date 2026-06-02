@@ -7,7 +7,7 @@ import { useSocket } from "../context/SocketContext";
 
 function DiscoverPage() {
   const navigate = useNavigate();
-  const { socket } = useSocket();
+  const { socket, setFriendRequests } = useSocket();
   const [search, setSearch] = useState("");
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -92,7 +92,9 @@ function DiscoverPage() {
   const handleSendRequest = async (userId) => {
     setSendingIds((prev) => [...prev, userId]);
     try {
-      await api.post(`/users/friend-request/send/${userId}`);
+      const res = await api.post(`/users/friend-request/send/${userId}`);
+      const newRequest = res.data?.request;
+      
       setUsers((prev) =>
         prev.map((person) =>
           String(person._id || person.id) === String(userId)
@@ -100,6 +102,11 @@ function DiscoverPage() {
             : person
         )
       );
+
+      if (newRequest && setFriendRequests) {
+        setFriendRequests((prev) => [...prev, newRequest]);
+      }
+
       toast.success("Đã gửi lời mời kết bạn.");
       window.dispatchEvent(new Event("social-updated"));
     } catch (error) {
@@ -120,6 +127,13 @@ function DiscoverPage() {
             : person
         )
       );
+
+      if (setFriendRequests) {
+        setFriendRequests((prev) =>
+          prev.filter((r) => String(r.receiver?._id || r.receiver) !== String(userId))
+        );
+      }
+
       toast.success("Đã hủy yêu cầu kết bạn.");
       window.dispatchEvent(new Event("social-updated"));
     } catch (error) {
