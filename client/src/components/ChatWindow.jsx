@@ -320,9 +320,34 @@ function ChatWindow({
     return () => socket.off("nickname_updated", onNicknameUpdated);
   }, [socket, chatId, isGroupChat]);
 
-  // Tự động cuộn xuống dưới khi có tin nhắn mới
+  /**
+   * LOGIC CUỘN TRANG THÔNG MINH — CHỈ CUỘN KHI CÓ TIN NHẮN MỚI, KHÔNG CUỘN KHI CẬP NHẬT CẢM XÚC
+   * 
+   * Vấn đề: Trước đây useEffect theo dõi toàn bộ mảng `messages` và cuộn xuống dưới cùng 
+   * mỗi khi có bất kỳ thay đổi nào. Điều này bao gồm cả việc cập nhật mảng `reactions` 
+   * của một tin nhắn cũ, khiến trang bị nhảy xuống cuối gây khó chịu cho người dùng.
+   * 
+   * Giải pháp: Sử dụng `useRef` để lưu trữ số lượng tin nhắn trước đó (`prevMessageCountRef`).
+   * So sánh với `messages.length` hiện tại:
+   * - Nếu `messages.length > prevCount` → Có tin nhắn MỚI được thêm vào → Cuộn xuống dưới.
+   * - Nếu `messages.length <= prevCount` → Chỉ là cập nhật nội dung tin nhắn cũ 
+   *   (ví dụ: reactions, isRead, isRecalled...) → KHÔNG cuộn trang.
+   * 
+   * Kết quả: Người dùng có thể thả hoặc gỡ cảm xúc trên tin nhắn cũ ở phía trên 
+   * mà không bị hệ thống ép cuộn xuống cuối trang.
+   */
+  const prevMessageCountRef = useRef(0);
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+    const currentCount = messages.length;
+    const prevCount = prevMessageCountRef.current;
+    
+    // Chỉ cuộn xuống dưới cùng khi có tin nhắn MỚI được thêm vào danh sách
+    if (currentCount > prevCount && prevCount > 0) {
+      bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+    }
+    
+    // Cập nhật giá trị đếm trước đó cho lần render tiếp theo
+    prevMessageCountRef.current = currentCount;
   }, [messages]);
 
   // Cuộn ngay lập tức khi tải phòng chat mới xong

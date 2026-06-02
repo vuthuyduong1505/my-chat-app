@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
+import { createPortal } from "react-dom";
 import { FileText, Smile, Reply, MoreVertical, X } from "lucide-react";
 import UserAvatar from "../UserAvatar";
 import {
@@ -196,7 +197,15 @@ export function MessageActionBar({ message, isMine, onReply, onUnsend, onRemoveF
   );
 }
 
-export function ReactionBar({ onReact, onClose }) {
+/**
+ * Thanh chọn cảm xúc (Reaction Bar) - Hiển thị khi nhấn nút Smile.
+ * 
+ * HIGHLIGHT EMOJI ĐÃ CHỌN:
+ * Nếu người dùng hiện tại đã thả một emoji nào đó vào tin nhắn này (currentUserEmoji),
+ * emoji tương ứng trong thanh chọn sẽ có nền Cyan nhạt (bg-[#00BFA5]/20) và viền nhấn mạnh
+ * để người dùng nhận diện ngay emoji mình đã chọn trước đó.
+ */
+export function ReactionBar({ onReact, onClose, currentUserEmoji }) {
   const barRef = useRef(null);
 
   useEffect(() => {
@@ -216,58 +225,216 @@ export function ReactionBar({ onReact, onClose }) {
       data-message-action
       onClick={(e) => e.stopPropagation()}
     >
-      {REACTION_EMOJIS.map((emoji) => (
-        <button
-          key={emoji}
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            onReact(emoji);
-            onClose?.();
-          }}
-          className="flex h-8 w-8 items-center justify-center rounded-full text-lg transition-transform duration-150 hover:scale-125 hover:bg-[#003B44]/5 active:scale-95"
-          aria-label={`Thả cảm xúc ${emoji}`}
-        >
-          {emoji}
-        </button>
-      ))}
+      {REACTION_EMOJIS.map((emoji) => {
+        // Kiểm tra xem emoji này có trùng với emoji mà người dùng hiện tại đã thả không
+        const isActive = currentUserEmoji === emoji;
+        return (
+          <button
+            key={emoji}
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onReact(emoji);
+              onClose?.();
+            }}
+            className={`flex h-8 w-8 items-center justify-center rounded-full text-lg transition-all duration-150 hover:scale-125 active:scale-95 ${
+              isActive
+                ? "bg-[#00BFA5]/20 ring-2 ring-[#00BFA5]/30 scale-110"
+                : "hover:bg-[#003B44]/5"
+            }`}
+            aria-label={`Thả cảm xúc ${emoji}`}
+          >
+            {emoji}
+          </button>
+        );
+      })}
     </div>
   );
 }
 
-export function ReactionDisplay({ reactions, onReact, isMine }) {
+export function ReactionDetailsModal({ reactions, onClose }) {
+  const [activeTab, setActiveTab] = useState("all");
+  const modalRef = useRef(null);
+
+  useEffect(() => {
+    const handleOutside = (e) => {
+      if (modalRef.current && !modalRef.current.contains(e.target)) {
+        onClose?.();
+      }
+    };
+    document.addEventListener("mousedown", handleOutside);
+    return () => document.removeEventListener("mousedown", handleOutside);
+  }, [onClose]);
+
   if (!reactions?.length) return null;
 
+  // Lấy ra danh sách các emoji độc nhất để tạo tab lọc
+  const emojiCounts = new Map();
+  reactions.forEach((r) => {
+    emojiCounts.set(r.emoji, (emojiCounts.get(r.emoji) || 0) + 1);
+  });
+  const uniqueEmojis = Array.from(emojiCounts.keys());
+
+  // Lọc cảm xúc dựa trên tab đang hoạt động
+  const filteredReactions = activeTab === "all"
+    ? reactions
+    : reactions.filter((r) => r.emoji === activeTab);
+
+  const getAvatarText = (user) => {
+    const base = user?.firstName || user?.lastName || user?.email || "?";
+    return base.charAt(0).toUpperCase();
+  };
+
+  /**
+   * SỬ DỤNG createPortal ĐỂ RENDER MODAL RA NGOÀI CÂY COMPONENT HIỆN TẠI
+   * 
+   * Vấn đề: Modal cảm xúc nằm bên trong MessageItem → MessageList → ChatWindow,
+   * nơi mà ChatInput (z-10) và ChatHeader (z-10) tạo ra ngữ cảnh xếp chồng riêng (Stacking Context).
+   * Dù Modal có z-50, nó vẫn bị kẹt bên dưới các phần tử có z-index cao hơn trong cùng ngữ cảnh cha.
+   * 
+   * Giải pháp: Sử dụng createPortal để render Modal trực tiếp vào document.body,
+   * thoát hoàn toàn khỏi mọi Stacking Context và đảm bảo z-[999] phủ kín toàn bộ màn hình.
+   */
+  return createPortal(
+    <div className="fixed inset-0 z-[999] flex items-center justify-center bg-black/40 backdrop-blur-[1px] p-4 transition-all duration-200" onClick={onClose}>
+      <div
+        ref={modalRef}
+        className="flex max-h-[380px] w-full max-w-sm flex-col rounded-2xl border border-[#003B44]/8 bg-white p-5 shadow-2xl animate-[fadeInUp_0.18s_ease-out]"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Tiêu đề Modal */}
+        <div className="flex items-center justify-between border-b border-gray-100 pb-3">
+          <h3 className="text-sm font-extrabold text-[#003B44]">Cảm xúc tin nhắn</h3>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-full p-1 text-[#003B44]/65 hover:bg-gray-100 transition"
+            aria-label="Đóng"
+          >
+            <X size={16} />
+          </button>
+        </div>
+
+        {/* Bộ lọc tab cảm xúc */}
+        <div className="flex gap-2 border-b border-gray-50 py-2.5 overflow-x-auto scrollbar-thin">
+          <button
+            type="button"
+            onClick={() => setActiveTab("all")}
+            className={`whitespace-nowrap rounded-full px-3 py-1 text-xs font-bold transition-all duration-150 ${
+              activeTab === "all"
+                ? "bg-[#003B44] text-[#00BFA5] shadow-sm"
+                : "bg-gray-100 text-[#003B44]/75 hover:bg-gray-200"
+            }`}
+          >
+            Tất cả ({reactions.length})
+          </button>
+          {uniqueEmojis.map((emoji) => (
+            <button
+              key={emoji}
+              type="button"
+              onClick={() => setActiveTab(emoji)}
+              className={`flex items-center gap-1 whitespace-nowrap rounded-full px-3 py-1 text-xs font-bold transition-all duration-150 ${
+                activeTab === emoji
+                  ? "bg-[#003B44] text-[#00BFA5] shadow-sm"
+                  : "bg-gray-100 text-[#003B44]/75 hover:bg-gray-200"
+              }`}
+            >
+              <span>{emoji}</span>
+              <span className="text-[10px] opacity-75">{emojiCounts.get(emoji)}</span>
+            </button>
+          ))}
+        </div>
+
+        {/* Danh sách người dùng đã thả cảm xúc */}
+        <div className="flex-1 overflow-y-auto mt-3 pr-1 space-y-2.5 scrollbar-thin">
+          {filteredReactions.map((r, idx) => {
+            const user = r.user || {};
+            const fullName = `${user.firstName || ""} ${user.lastName || ""}`.trim() || user.email || "Thành viên";
+            const initial = getAvatarText(user);
+
+            return (
+              <div key={idx} className="flex items-center justify-between gap-3 rounded-xl hover:bg-gray-50/50 p-1.5 transition duration-150">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  {user.avatar ? (
+                    <img
+                      src={user.avatar}
+                      alt=""
+                      className="h-8 w-8 rounded-full object-cover ring-1 ring-[#00BFA5]/10"
+                    />
+                  ) : (
+                    <div className="flex h-8 w-8 items-center justify-center rounded-full bg-[#003B44]/8 text-xs font-bold text-[#003B44] ring-1 ring-[#003B44]/5">
+                      {initial}
+                    </div>
+                  )}
+                  <div className="min-w-0">
+                    <p className="truncate text-xs font-bold text-[#003B44]">{fullName}</p>
+                    <p className="truncate text-[10px] text-[#003B44]/45 mt-0.5">{user.email}</p>
+                  </div>
+                </div>
+                <span className="text-base select-none leading-none pr-1">{r.emoji}</span>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>,
+    document.body
+  );
+}
+
+/**
+ * Nhãn cảm xúc dạng viên thuốc (Pill Badge) hiển thị dưới bong bóng chat.
+ * 
+ * HIGHLIGHT KHI NGƯỜI DÙNG HIỆN TẠI ĐÃ THAM GIA THẢ CẢM XÚC:
+ * Nếu currentUserId nằm trong danh sách reactions, nhãn cảm xúc sẽ chuyển sang 
+ * nền Cyan cực nhạt (bg-[#00BFA5]/10) và viền Cyan (ring-[#00BFA5]/40) 
+ * thay vì nền trắng và viền trắng mặc định, giúp người dùng nhận diện ngay.
+ */
+export function ReactionDisplay({ reactions, onClick, isMine, currentUserId }) {
+  if (!reactions?.length) return null;
+
+  // Gom các emoji độc nhất và tính số lượng
   const emojiCountMap = new Map();
   reactions.forEach((r) => {
     const key = r.emoji;
     emojiCountMap.set(key, (emojiCountMap.get(key) || 0) + 1);
   });
 
-  const grouped = Array.from(emojiCountMap.entries())
-    .map(([emoji, count]) => ({ emoji, count }))
-    .sort((a, b) => b.count - a.count);
+  const uniqueEmojis = Array.from(emojiCountMap.keys()).slice(0, 3);
+  const totalCount = reactions.length;
+
+  // Kiểm tra xem người dùng hiện tại có nằm trong danh sách thả cảm xúc không
+  const iReacted = currentUserId && reactions.some(
+    (r) => String(r.user?._id || r.user) === String(currentUserId)
+  );
 
   return (
-    <div className={`mt-0.5 flex flex-wrap gap-1 ${isMine ? "justify-end" : "justify-start"}`}>
-      {grouped.map(({ emoji, count }) => (
-        <button
-          key={emoji}
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            onReact?.(emoji);
-          }}
-          className="flex items-center gap-0.5 rounded-full border border-[#003B44]/10 bg-white px-1.5 py-0.5 text-xs shadow-sm transition-all duration-150 hover:border-[#00BFA5]/40 hover:shadow-md active:scale-95"
-          title={`${count} người đã thả ${emoji}`}
-        >
-          <span className="text-sm leading-none">{emoji}</span>
-          {count > 1 ? (
-            <span className="text-[10px] font-semibold tabular-nums text-[#003B44]/60">{count}</span>
-          ) : null}
-        </button>
-      ))}
-    </div>
+    <button
+      type="button"
+      onClick={(e) => {
+        e.stopPropagation();
+        onClick?.();
+      }}
+      className={`flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs shadow-sm ring-2 hover:shadow-md hover:scale-105 active:scale-95 transition-all duration-150 cursor-pointer ${
+        iReacted
+          ? "bg-[#00BFA5]/10 border-[#00BFA5]/30 ring-[#00BFA5]/25"
+          : "bg-white border-[#003B44]/10 ring-white"
+      }`}
+      title={`${totalCount} người đã thả cảm xúc`}
+    >
+      <div className="flex -space-x-1 items-center">
+        {uniqueEmojis.map((emoji) => (
+          <span key={emoji} className="text-xs leading-none select-none">{emoji}</span>
+        ))}
+      </div>
+      {totalCount > 1 && (
+        <span className={`text-[10px] font-bold select-none pl-0.5 ${
+          iReacted ? "text-[#00BFA5]" : "text-[#003B44]/75"
+        }`}>
+          {totalCount}
+        </span>
+      )}
+    </button>
   );
 }
 
@@ -321,6 +488,7 @@ function MessageItem({
   nicknames
 }) {
   const [showReactionBar, setShowReactionBar] = useState(false);
+  const [showReactionModal, setShowReactionModal] = useState(false);
 
   if (message.isRecalled) {
     const recalledRadius = getGroupedBubbleRadius(isMine, isFirstInGroup, isLastInGroup);
@@ -435,6 +603,12 @@ function MessageItem({
         <ReactionBar
           onReact={(emoji) => onReact?.(message, emoji)}
           onClose={() => setShowReactionBar(false)}
+          currentUserEmoji={
+            // Tìm emoji mà người dùng hiện tại đã thả vào tin nhắn này (nếu có)
+            (message.reactions || []).find(
+              (r) => String(r.user?._id || r.user) === String(currentUserId)
+            )?.emoji || null
+          }
         />
       ) : null}
     </div>
@@ -443,8 +617,9 @@ function MessageItem({
   const reactionDisplay = (
     <ReactionDisplay
       reactions={message.reactions}
-      onReact={(emoji) => onReact?.(message, emoji)}
+      onClick={() => setShowReactionModal(true)}
       isMine={isMine}
+      currentUserId={currentUserId}
     />
   );
 
@@ -460,9 +635,10 @@ function MessageItem({
     />
   ) : null;
 
-  const messageBody = (
-    <div className={`flex w-fit min-w-0 max-w-[80%] flex-col gap-1 ${isMine ? "items-end" : "items-start"}`}>
-      {quoteEl && (hasImage || hasFile) && !hasText ? quoteEl : null}
+  const hasReactions = message.reactions && message.reactions.length > 0;
+
+  const contentBubble = (
+    <div className={`relative w-fit max-w-full ${hasReactions ? "pb-2.5" : ""}`}>
       {hasImage ? (
         <button
           type="button"
@@ -490,6 +666,37 @@ function MessageItem({
           <p className="break-all whitespace-pre-wrap [overflow-wrap:anywhere] leading-snug">{message.content}</p>
         </div>
       ) : null}
+
+      {/* 
+        GIẢI THÍCH: ĐỊNH VỊ NHÃN CẢM XÚC BÁM DÍNH CONTAINER BONG BÓNG CHAT DÙNG ABSOLUTE VÀ TRANSLATE
+        
+        Để nhãn cảm xúc bám dính vào viền dưới của bong bóng chat theo đúng phong cách Messenger (Messenger Style):
+        1. Thẻ wrapper chứa bong bóng chat (`contentBubble`) được thiết lập thuộc tính `relative` để làm mốc tọa độ.
+        2. Nhãn cảm xúc được đặt ở trạng thái `absolute` bám sát cạnh dưới (`bottom-0`).
+        3. Sử dụng `translate-y-1/2` (dịch chuyển trục Y đi 50% chiều cao của chính nhãn cảm xúc) để nhãn nằm đè chính giữa
+           lên đường biên dưới của bong bóng chat một cách cân đối và đẹp mắt.
+        4. Đối với tin nhắn của bạn bè (bên trái): Nhãn cảm xúc nằm sát góc phải (`right-3`), thụt vào trong một chút (12px) để không bị trôi ra ngoài.
+        5. Đối với tin nhắn của mình (bên phải): Nhãn cảm xúc nằm sát góc trái (`left-3`), thụt vào trong một chút (12px) để cân đối.
+        6. Để tránh việc nhãn cảm xúc đè lên các tin nhắn hay dòng thời gian bên dưới, chúng tôi tăng nhẹ padding-bottom (`pb-2.5`) 
+           cho container khi có cảm xúc, tạo không gian hiển thị cực kỳ tự nhiên.
+        7. Nhãn cảm xúc sử dụng `ring-2 ring-white` tạo viền trắng bao quanh giúp nhãn "nổi khối" tách biệt rõ ràng khỏi bong bóng chat.
+      */}
+      {hasReactions && (
+        <div
+          className={`absolute bottom-0 translate-y-1/2 z-20 flex items-center gap-1 ${
+            isMine ? "left-3" : "right-3"
+          }`}
+        >
+          {reactionDisplay}
+        </div>
+      )}
+    </div>
+  );
+
+  const messageBody = (
+    <div className={`flex w-fit min-w-0 max-w-[80%] flex-col gap-1 ${isMine ? "items-end" : "items-start"}`}>
+      {quoteEl && (hasImage || hasFile) && !hasText ? quoteEl : null}
+      {contentBubble}
       {!hasText && quoteEl && !hasImage && !hasFile ? quoteEl : null}
     </div>
   );
@@ -499,43 +706,68 @@ function MessageItem({
       <p className="mb-0.5 max-w-[min(92%,480px)] truncate px-1 text-[10px] font-medium text-[#003B44]/55">{senderLabel}</p>
     ) : null;
 
+  /**
+   * CẤP PHÁT KHÔNG GIAN ĐỆM (Spacing Allocation) CHO NHÃN CẢM XÚC
+   * 
+   * Vì nhãn cảm xúc sử dụng `absolute` + `translate-y-1/2`, phần thân của nó tràn ra ngoài 
+   * bounding box của bong bóng chat và đè lên dòng tin nhắn tiếp theo phía dưới.
+   * 
+   * Giải pháp: Khi tin nhắn có cảm xúc (`hasReactions === true`), chúng ta thêm `mb-4` 
+   * (margin-bottom: 16px) vào thẻ wrapper ngoài cùng của dòng tin nhắn đó.
+   * Khoảng cách đệm này tạo ra vùng trống vừa đủ bên dưới để nhãn cảm xúc nằm gọn gàng 
+   * mà không chạm vào Avatar hay nội dung của dòng tin nhắn kế tiếp.
+   */
   if (isMine) {
     return (
-      <div className="group flex w-full flex-col items-end">
-        <div className="flex max-w-[min(92%,480px)] flex-row items-end gap-1.5">
-          <div className="flex shrink-0 items-center gap-0.5 self-end">
-            {hoverTimeAside}
-            {reactionTrigger}
-            {actionBar}
+      <>
+        <div className={`group flex w-full flex-col items-end ${hasReactions ? "mb-4" : ""}`}>
+          <div className="flex max-w-[min(92%,480px)] flex-row items-end gap-1.5">
+            <div className="flex shrink-0 items-center gap-0.5 self-end">
+              {hoverTimeAside}
+              {reactionTrigger}
+              {actionBar}
+            </div>
+            {messageBody}
+            {avatarSlot}
           </div>
-          {messageBody}
-          {avatarSlot}
+          {showSeenReceipt ? <SeenReceipt user={readReceiptUser} /> : null}
+          {isGroupChat && groupSeenViewers?.length ? <GroupSeenAvatars viewers={groupSeenViewers} /> : null}
         </div>
-        {reactionDisplay}
-        {showSeenReceipt ? <SeenReceipt user={readReceiptUser} /> : null}
-        {isGroupChat && groupSeenViewers?.length ? <GroupSeenAvatars viewers={groupSeenViewers} /> : null}
-      </div>
+        {showReactionModal && (
+          <ReactionDetailsModal
+            reactions={message.reactions}
+            onClose={() => setShowReactionModal(false)}
+          />
+        )}
+      </>
     );
   }
 
   return (
-    <div className="group flex max-w-[min(92%,480px)] flex-col items-start gap-0">
-      <div className="flex w-full flex-row items-end gap-1.5">
-        {avatarSlot}
-        <div className="flex min-w-0 flex-col items-start">
-          {senderNameEl}
-          <div className="flex items-end gap-0.5">
-            {messageBody}
-            <div className="flex shrink-0 items-center gap-0.5 self-end">
-              {reactionTrigger}
-              {actionBar}
-              {hoverTimeAside}
+    <>
+      <div className={`group flex max-w-[min(92%,480px)] flex-col items-start gap-0 ${hasReactions ? "mb-4" : ""}`}>
+        <div className="flex w-full flex-row items-end gap-1.5">
+          {avatarSlot}
+          <div className="flex min-w-0 flex-col items-start">
+            {senderNameEl}
+            <div className="flex items-end gap-0.5">
+              {messageBody}
+              <div className="flex shrink-0 items-center gap-0.5 self-end">
+                {reactionTrigger}
+                {actionBar}
+                {hoverTimeAside}
+              </div>
             </div>
           </div>
         </div>
       </div>
-      <div className="pl-10">{reactionDisplay}</div>
-    </div>
+      {showReactionModal && (
+        <ReactionDetailsModal
+          reactions={message.reactions}
+          onClose={() => setShowReactionModal(false)}
+        />
+      )}
+    </>
   );
 }
 
