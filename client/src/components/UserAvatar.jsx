@@ -34,17 +34,18 @@ function UserAvatar({
   }, [trimmed]);
 
   const initial = useMemo(() => {
-    const name = `${firstName || ""} ${lastName || ""}`.trim();
+    const name = (firstName || "").trim();
     const base = name || email || "?";
     return base.charAt(0).toUpperCase() || "?";
-  }, [firstName, lastName, email]);
+  }, [firstName, email]);
 
   const sizeCls = SIZE_CLASSES[size] || SIZE_CLASSES.md;
   const showImg = Boolean(trimmed) && !imgErr;
 
   return (
     <div
-      className={`flex flex-shrink-0 items-center justify-center overflow-hidden rounded-full bg-primary/10 font-bold text-primary ${sizeCls} ${className}`.trim()}
+      className={`flex flex-shrink-0 items-center justify-center overflow-hidden rounded-full font-bold ${sizeCls} ${className}`.trim()}
+      style={!showImg ? { backgroundColor: "#003B44", color: "#ffffff", border: "1px solid rgba(255, 255, 255, 0.8)" } : {}}
     >
       {showImg ? (
         <img

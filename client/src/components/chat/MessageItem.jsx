@@ -68,7 +68,7 @@ export function SeenReceipt({ user: peer }) {
 }
 
 export function TinySeenAvatar({ user }) {
-  const initial = (user?.firstName || user?.email || "?")[0]?.toUpperCase();
+  const initial = ((user?.firstName || "").trim() || user?.email || "?")[0]?.toUpperCase();
 
   if (user?.avatar) {
     return (
@@ -81,7 +81,10 @@ export function TinySeenAvatar({ user }) {
   }
 
   return (
-    <span className="flex h-3 w-3 shrink-0 items-center justify-center rounded-full bg-[#003B44]/12 text-[6px] font-semibold leading-none text-[#003B44]/70 ring-1 ring-white">
+    <span
+      className="flex h-3 w-3 shrink-0 items-center justify-center rounded-full text-[6px] font-semibold leading-none ring-1 ring-white text-white"
+      style={{ backgroundColor: "#003B44" }}
+    >
       {initial}
     </span>
   );
@@ -484,6 +487,7 @@ function MessageItem({
   memberMap,
   showSeenReceipt,
   groupSeenViewers,
+  seenAvatars = [],
   onReact,
   nicknames
 }) {
@@ -519,9 +523,12 @@ function MessageItem({
             {recalledBubble}
             {avatarSlot}
           </div>
-          {showSeenReceipt ? <SeenReceipt user={readReceiptUser} /> : null}
-          {isGroupChat && isMine && groupSeenViewers?.length ? (
-            <GroupSeenAvatars viewers={groupSeenViewers} />
+          {seenAvatars && seenAvatars.length > 0 ? (
+            <div className="mr-10 mt-px flex flex-wrap items-center justify-end gap-px self-end">
+              {seenAvatars.map((viewer) => (
+                <TinySeenAvatar key={String(viewer._id)} user={viewer} />
+              ))}
+            </div>
           ) : null}
         </div>
       );
@@ -535,16 +542,25 @@ function MessageItem({
       ) : null;
 
     return (
-      <div className="group flex max-w-[min(92%,480px)] flex-row items-end gap-1.5">
-        {avatarSlot}
-        <div className="flex min-w-0 flex-col items-start">
-          {recalledSenderName}
-          {recalledBubble}
+      <div className="group flex w-full flex-col items-start gap-0">
+        <div className="flex max-w-[min(92%,480px)] flex-row items-end gap-1.5">
+          {avatarSlot}
+          <div className="flex min-w-0 flex-col items-start">
+            {recalledSenderName}
+            {recalledBubble}
+          </div>
+          {hoverTime ? (
+            <span className="shrink-0 self-end pb-1 text-[10px] leading-none tabular-nums text-primary/35 opacity-0 transition-opacity duration-150 group-hover/message-row:opacity-100">
+              {hoverTime}
+            </span>
+          ) : null}
         </div>
-        {hoverTime ? (
-          <span className="shrink-0 self-end pb-1 text-[10px] leading-none tabular-nums text-primary/35 opacity-0 transition-opacity duration-150 group-hover/message-row:opacity-100">
-            {hoverTime}
-          </span>
+        {seenAvatars && seenAvatars.length > 0 ? (
+          <div className="mt-px flex flex-wrap items-center justify-end gap-px w-full pr-10">
+            {seenAvatars.map((viewer) => (
+              <TinySeenAvatar key={String(viewer._id)} user={viewer} />
+            ))}
+          </div>
         ) : null}
       </div>
     );
@@ -730,8 +746,13 @@ function MessageItem({
             {messageBody}
             {avatarSlot}
           </div>
-          {showSeenReceipt ? <SeenReceipt user={readReceiptUser} /> : null}
-          {isGroupChat && groupSeenViewers?.length ? <GroupSeenAvatars viewers={groupSeenViewers} /> : null}
+          {seenAvatars && seenAvatars.length > 0 ? (
+            <div className="mr-10 mt-px flex flex-wrap items-center justify-end gap-px self-end">
+              {seenAvatars.map((viewer) => (
+                <TinySeenAvatar key={String(viewer._id)} user={viewer} />
+              ))}
+            </div>
+          ) : null}
         </div>
         {showReactionModal && (
           <ReactionDetailsModal
@@ -745,8 +766,8 @@ function MessageItem({
 
   return (
     <>
-      <div className={`group flex max-w-[min(92%,480px)] flex-col items-start gap-0 ${hasReactions ? "mb-4" : ""}`}>
-        <div className="flex w-full flex-row items-end gap-1.5">
+      <div className={`group flex w-full flex-col items-start gap-0 ${hasReactions ? "mb-4" : ""}`}>
+        <div className="flex max-w-[min(92%,480px)] flex-row items-end gap-1.5">
           {avatarSlot}
           <div className="flex min-w-0 flex-col items-start">
             {senderNameEl}
@@ -760,6 +781,13 @@ function MessageItem({
             </div>
           </div>
         </div>
+        {seenAvatars && seenAvatars.length > 0 ? (
+          <div className="mt-px flex flex-wrap items-center justify-end gap-px w-full pr-10">
+            {seenAvatars.map((viewer) => (
+              <TinySeenAvatar key={String(viewer._id)} user={viewer} />
+            ))}
+          </div>
+        ) : null}
       </div>
       {showReactionModal && (
         <ReactionDetailsModal

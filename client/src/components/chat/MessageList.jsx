@@ -10,7 +10,9 @@ import {
   resolveMessageAvatar,
   groupBubbleSenderName,
   getMessageGroupPosition,
-  isMessageMine
+  isMessageMine,
+  getSeenByUserId,
+  getSenderId
 } from "./chatUtils";
 
 /**
@@ -38,6 +40,31 @@ function MessageList({
   handleSendReaction
 }) {
   const { user } = useAuth();
+
+  const lastSeenMap = React.useMemo(() => {
+    const map = {};
+    visibleMessages.forEach((m) => {
+      if (m?.seenBy && Array.isArray(m.seenBy)) {
+        m.seenBy.forEach((entry) => {
+          const uId = getSeenByUserId(entry);
+          if (uId) {
+            map[uId] = String(m._id);
+          }
+        });
+      }
+      if (!isGroupChat && friend) {
+        const friendId = String(friend._id || friend.id || "");
+        const mSenderId = getSenderId(m);
+        const isMine = String(mSenderId) === String(currentUserId);
+        if (isMine && m.isRead) {
+          map[friendId] = String(m._id);
+        } else if (!isMine) {
+          map[friendId] = String(m._id);
+        }
+      }
+    });
+    return map;
+  }, [visibleMessages, isGroupChat, friend, currentUserId]);
 
   return (
     <div className="relative z-10 flex min-h-0 flex-1 flex-col overflow-hidden">
@@ -89,6 +116,27 @@ function MessageList({
             }
 
             const isMine = isMessageMine(m, currentUserId);
+
+            const messageIdStr = String(m._id);
+            const seenAvatars = [];
+            Object.entries(lastSeenMap).forEach(([uId, lastMsgId]) => {
+              if (uId === String(currentUserId)) return;
+              if (lastMsgId === messageIdStr) {
+                let userObj = m?.seenBy?.find((entry) => getSeenByUserId(entry) === uId);
+                if (userObj && typeof userObj === "object" && (userObj.firstName || userObj.avatar)) {
+                  seenAvatars.push(userObj);
+                } else {
+                  const member = memberMap?.get?.(uId);
+                  if (member) {
+                    seenAvatars.push(member);
+                  } else if (!isGroupChat && friend && String(friend._id || friend.id) === uId) {
+                    seenAvatars.push(friend);
+                  } else {
+                    seenAvatars.push({ _id: uId });
+                  }
+                }
+              }
+            });
 
             // So sánh prevMessage / nextMessage để biết tin đứng đầu hay cuối nhóm gom
             const { isFirstInGroup, isLastInGroup } = getMessageGroupPosition(
@@ -173,6 +221,7 @@ function MessageList({
                     groupSeenViewers={
                       isGroupChat && isMine ? groupSeenAvatarMap.get(String(m._id)) || [] : []
                     }
+                    seenAvatars={seenAvatars}
                     nicknames={localNicknames}
                   />
                 </div>

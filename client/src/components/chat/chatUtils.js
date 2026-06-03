@@ -140,7 +140,7 @@ export function buildGroupSeenAvatarMap(messages, currentUserId, memberMap) {
   const viewerLastReadIndex = new Map();
 
   myMessages.forEach(({ m, index }) => {
-    (m.seenBy || []).forEach((entry) => {
+    (m?.seenBy || []).forEach((entry) => {
       const vid = getSeenByUserId(entry);
       if (!vid || vid === me) return;
       const prev = viewerLastReadIndex.get(vid) ?? -1;
@@ -152,7 +152,7 @@ export function buildGroupSeenAvatarMap(messages, currentUserId, memberMap) {
     const viewers = [];
     viewerLastReadIndex.forEach((lastIndex, vid) => {
       if (lastIndex !== index) return;
-      const fromMsg = (m.seenBy || []).find((entry) => getSeenByUserId(entry) === vid);
+      const fromMsg = (m?.seenBy || []).find((entry) => getSeenByUserId(entry) === vid);
       if (fromMsg && typeof fromMsg === "object" && (fromMsg.firstName !== undefined || fromMsg.avatar)) {
         viewers.push(fromMsg);
         return;

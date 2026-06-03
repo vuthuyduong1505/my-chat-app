@@ -14,7 +14,7 @@ const {
 async function emitMessagePayload(doc, extra = {}) {
   const populated = await Message.findById(doc._id)
     .populate("sender", SENDER_PROFILE_FIELDS)
-    .populate("seenBy", SENDER_PROFILE_FIELDS)
+    .populate("seenBy", "firstName lastName avatar")
     .populate(REPLY_TO_POPULATE)
     .populate("reactions.user", SENDER_PROFILE_FIELDS)
     .lean();
@@ -323,6 +323,7 @@ function attachSocketIO(httpServer) {
             fileType: attachmentType,
             fileName: attachmentName,
             messageType,
+            seenBy: [userId],
             ...(validReplyTo ? { replyTo: validReplyTo } : {})
           });
 
@@ -346,6 +347,7 @@ function attachSocketIO(httpServer) {
           fileUrl: attachmentUrl,
           fileType: attachmentType,
           fileName: attachmentName,
+          seenBy: [userId],
           ...(validReplyTo ? { replyTo: validReplyTo } : {})
         });
 
@@ -431,7 +433,10 @@ function attachSocketIO(httpServer) {
             isRead: false,
             isRecalled: false
           },
-          { $set: { isRead: true } }
+          { 
+            $set: { isRead: true },
+            $addToSet: { seenBy: readerId }
+          }
         );
 
         if (result.modifiedCount === 0) return;

@@ -489,7 +489,7 @@ function ChatWindow({
       setMessages((prev) =>
         prev.map((m) => {
           if (!ids.has(String(m._id))) return m;
-          return { ...m, seenBy: mergeSeenByEntry(m.seenBy, user || { _id: userId }) };
+          return { ...m, seenBy: mergeSeenByEntry(m?.seenBy, user || { _id: userId }) };
         })
       );
     };
