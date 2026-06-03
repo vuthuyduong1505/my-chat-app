@@ -5,6 +5,7 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import api from "../api";
 import { useSocket } from "../context/SocketContext";
 import { useAuth } from "../context/AuthContext";
+import UserAvatar from "../components/common/UserAvatar";
 
 /**
  * GIẢI THÍCH: PHÂN LOẠI LỜI MỜI DỰA TRÊN VAI TRÒ SENDER VÀ RECEIVER
@@ -152,10 +153,7 @@ function FriendsPage() {
     }
   };
 
-  const getAvatarText = (item) => {
-    const base = item?.firstName || item?.lastName || item?.email || "?";
-    return base.charAt(0).toUpperCase();
-  };
+
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-[#f0f4f6] p-4 md:p-6 overflow-y-auto">
@@ -229,17 +227,12 @@ function FriendsPage() {
                 return (
                   <div key={friendId} className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-[#003B44]/8 bg-white p-4 shadow-sm hover:shadow-md transition duration-200">
                     <div className="flex min-w-0 items-center gap-3">
-                      {friend.avatar ? (
-                        <img
-                          src={friend.avatar}
-                          alt=""
-                          className="h-11 w-11 rounded-full object-cover ring-2 ring-[#00BFA5]/20"
-                        />
-                      ) : (
-                        <div className="flex h-11 w-11 items-center justify-center rounded-full bg-[#003B44]/8 font-bold text-[#003B44] ring-2 ring-[#003B44]/5">
-                          {getAvatarText(friend)}
-                        </div>
-                      )}
+                      <UserAvatar
+                        user={friend}
+                        size="md"
+                        className="ring-2 ring-[#00BFA5]/20"
+                        alt=""
+                      />
                       <div className="min-w-0">
                         <p className="truncate font-bold text-[#003B44]">
                           {`${friend.firstName || ""} ${friend.lastName || ""}`.trim() || "Thành viên"}
@@ -289,17 +282,12 @@ function FriendsPage() {
                   return (
                     <div key={request._id} className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-[#003B44]/8 bg-white p-4 shadow-sm hover:shadow-md transition duration-200">
                       <div className="flex min-w-0 items-center gap-3">
-                        {sender.avatar ? (
-                          <img
-                            src={sender.avatar}
-                            alt=""
-                            className="h-11 w-11 rounded-full object-cover ring-2 ring-[#00BFA5]/20"
-                          />
-                        ) : (
-                          <div className="flex h-11 w-11 items-center justify-center rounded-full bg-[#003B44]/8 font-bold text-[#003B44] ring-2 ring-[#003B44]/5">
-                            {getAvatarText(sender)}
-                          </div>
-                        )}
+                        <UserAvatar
+                          user={sender}
+                          size="md"
+                          className="ring-2 ring-[#00BFA5]/20"
+                          alt=""
+                        />
                         <div className="min-w-0">
                           <p className="truncate font-bold text-[#003B44]">
                             {`${sender.firstName || ""} ${sender.lastName || ""}`.trim() || "Thành viên"}
@@ -350,17 +338,12 @@ function FriendsPage() {
                   return (
                     <div key={request._id} className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-[#003B44]/8 bg-white p-4 shadow-sm hover:shadow-md transition duration-200">
                       <div className="flex min-w-0 items-center gap-3">
-                        {receiver.avatar ? (
-                          <img
-                            src={receiver.avatar}
-                            alt=""
-                            className="h-11 w-11 rounded-full object-cover ring-2 ring-[#00BFA5]/20"
-                          />
-                        ) : (
-                          <div className="flex h-11 w-11 items-center justify-center rounded-full bg-[#003B44]/8 font-bold text-[#003B44] ring-2 ring-[#003B44]/5">
-                            {getAvatarText(receiver)}
-                          </div>
-                        )}
+                        <UserAvatar
+                          user={receiver}
+                          size="md"
+                          className="ring-2 ring-[#00BFA5]/20"
+                          alt=""
+                        />
                         <div className="min-w-0">
                           <p className="truncate font-bold text-[#003B44]">
                             {`${receiver.firstName || ""} ${receiver.lastName || ""}`.trim() || "Thành viên"}

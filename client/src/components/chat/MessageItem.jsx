@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import { FileText, Smile, Reply, MoreVertical, X } from "lucide-react";
-import UserAvatar from "../UserAvatar";
+import UserAvatar from "../common/UserAvatar";
 import {
   downloadFile,
   RECALLED_TEXT,

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Loader2, Search, Users, X } from "lucide-react";
 import toast from "react-hot-toast";
 import api from "../api";
-import UserAvatar from "./UserAvatar";
+import UserAvatar from "./common/UserAvatar";
 
 function friendLabel(friend) {
   const name = `${friend?.firstName || ""} ${friend?.lastName || ""}`.trim();

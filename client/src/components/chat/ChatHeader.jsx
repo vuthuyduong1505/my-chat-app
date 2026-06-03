@@ -1,7 +1,7 @@
 import React from "react";
 import { Info } from "lucide-react";
 import GroupAvatar from "../GroupAvatar";
-import UserAvatar from "../UserAvatar";
+import UserAvatar from "../common/UserAvatar";
 
 /**
  * Component ChatHeader

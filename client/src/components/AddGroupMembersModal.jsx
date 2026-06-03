@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from "react";
 import { UserPlus, Search, X, Loader2 } from "lucide-react";
 import toast from "react-hot-toast";
 import api from "../api";
-import UserAvatar from "./UserAvatar";
+import UserAvatar from "./common/UserAvatar";
 import { getCallingName } from "../utils/displayName";
 
 function memberDisplayLabel(member) {

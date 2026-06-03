@@ -6,7 +6,7 @@ import api from "../api";
 import ChatWindow from "../components/ChatWindow";
 import CreateGroupModal from "../components/CreateGroupModal";
 import GroupAvatar from "../components/GroupAvatar";
-import UserAvatar from "../components/UserAvatar";
+import UserAvatar from "../components/common/UserAvatar";
 import { getCallingName, getCallingNameFromFullName, getDisplayName } from "../utils/displayName";
 import { useAuth } from "../context/AuthContext";
 import { useSocket } from "../context/SocketContext";

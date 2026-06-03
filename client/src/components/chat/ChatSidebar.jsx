@@ -14,7 +14,7 @@ import {
   LogOut
 } from "lucide-react";
 import GroupAvatar from "../GroupAvatar";
-import UserAvatar from "../UserAvatar";
+import UserAvatar from "../common/UserAvatar";
 import api from "../../api";
 import { getDisplayName } from "../../utils/displayName";
 import { downloadFile, extractSharedMediaFromMessages } from "./chatUtils";

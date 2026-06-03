@@ -11,7 +11,7 @@ import {
 } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import api from "../api";
-import UserAvatar from "../components/UserAvatar";
+import UserAvatar from "../components/common/UserAvatar";
 
 const navItems = [
   { to: "/chat", end: false, label: "Trò chuyện", icon: MessageSquare },

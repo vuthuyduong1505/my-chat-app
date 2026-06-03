@@ -1,5 +1,5 @@
 import { Users } from "lucide-react";
-import UserAvatar from "./UserAvatar";
+import UserAvatar from "./common/UserAvatar";
 
 /**
  * Avatar nhóm — mọi biến thể đều hình tròn (rounded-full) để đồng bộ với avatar người dùng.

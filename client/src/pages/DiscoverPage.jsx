@@ -4,6 +4,7 @@ import { useNavigate } from "react-router-dom";
 import toast from "react-hot-toast";
 import api from "../api";
 import { useSocket } from "../context/SocketContext";
+import UserAvatar from "../components/common/UserAvatar";
 
 function DiscoverPage() {
   const navigate = useNavigate();
@@ -143,11 +144,6 @@ function DiscoverPage() {
     }
   };
 
-  const getAvatarText = (user) => {
-    const base = user?.firstName || user?.lastName || user?.email || "?";
-    return base.charAt(0).toUpperCase();
-  };
-
   const getHeaderTitle = () => {
     if (search.trim()) return "Kết quả tìm kiếm";
     if (isRecommendation) return "Gợi ý kết bạn";
@@ -282,17 +278,12 @@ function DiscoverPage() {
                 >
                   <div>
                     <div className="mb-4 flex items-center gap-3.5">
-                      {person.avatar ? (
-                        <img
-                          src={person.avatar}
-                          alt=""
-                          className="h-12 w-12 rounded-full object-cover ring-2 ring-[#00BFA5]/20"
-                        />
-                      ) : (
-                        <div className="flex h-12 w-12 items-center justify-center rounded-full bg-[#003B44]/8 font-bold text-[#003B44] ring-2 ring-[#003B44]/5">
-                          {getAvatarText(person)}
-                        </div>
-                      )}
+                      <UserAvatar
+                        user={person}
+                        size="md"
+                        className="!h-12 !w-12 ring-2 ring-[#00BFA5]/20"
+                        alt=""
+                      />
                       <div className="min-w-0 flex-1">
                         <p className="truncate font-bold text-[#003B44] leading-snug group-hover:text-[#00BFA5] transition-colors">
                           {`${person.firstName || ""} ${person.lastName || ""}`.trim() || "Thành viên"}

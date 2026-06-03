@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { X, Edit2, Loader2 } from "lucide-react";
-import UserAvatar from "./UserAvatar";
+import UserAvatar from "./common/UserAvatar";
 
 /** Modal chỉnh sửa biệt danh */
 function NicknameModal({ open, onClose, participants, nicknames, onSave }) {

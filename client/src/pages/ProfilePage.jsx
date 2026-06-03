@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Camera, Loader2, Lock, Mail, User } from "lucide-react";
 import toast from "react-hot-toast";
 import api from "../api";
-import UserAvatar from "../components/UserAvatar";
+import UserAvatar from "../components/common/UserAvatar";
 import { useAuth } from "../context/AuthContext";
 
 function ProfilePage() {
